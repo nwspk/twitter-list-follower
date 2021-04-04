@@ -8,6 +8,7 @@ import tweepy
 import sys
 
 app = Chalice(app_name='cdk-list-follower')
+app.debug = True
 dynamodb = boto3.resource('dynamodb')
 dynamodb_table = dynamodb.Table(os.environ.get('APP_TABLE_NAME', ''))
 sqs = boto3.resource('sqs')

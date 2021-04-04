@@ -41,10 +41,7 @@ class ChaliceApp(cdk.Stack):
         dynamodb_table = dynamodb.Table(
             self, name,
             partition_key=dynamodb.Attribute(
-                name='PK', type=dynamodb.AttributeType.STRING),
-            sort_key=dynamodb.Attribute(
-                name='SK', type=dynamodb.AttributeType.STRING
-            ),
+                name='user_id', type=dynamodb.AttributeType.STRING),
             removal_policy=cdk.RemovalPolicy.DESTROY)
         cdk.CfnOutput(self, f'{name}Name',
                       value=dynamodb_table.table_name)

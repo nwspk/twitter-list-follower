@@ -3,9 +3,11 @@ import os
 import boto3
 from chalice import Chalice, Response, Rate
 from chalice.app import SQSEvent, SQSRecord, CloudWatchEvent
-from typing import Union, Tuple
+from chalicelib import db
+from typing import Tuple
 import tweepy
 import sys
+from boto3.dynamodb import table
 
 app = Chalice(app_name='cdk-list-follower')
 app.debug = True
@@ -16,6 +18,18 @@ do_now_queue_name = sqs.Queue(os.environ.get('APP_DO_NOW_QUEUE_NAME', ''))
 
 TWITTER_LIMIT = 1000
 USER_LIMIT = 400
+
+_DB = None
+
+
+def get_app_db() -> table:
+    global _DB
+    if _DB is None:
+        _DB = db.DynamoDBTodo(
+            boto3.resource('dynamodb').Table(
+                os.environ['APP_TABLE_NAME'])
+        )
+    return _DB
 
 
 def get_queue_url(queue_name: str):
@@ -50,7 +64,7 @@ def follow_the_list():
     auth = tweepy_auth()
     user_id = 'twitter-api'
     redirect_url = auth.get_authorization_url()
-    _update_user(user_id, 'request_token', auth.request_token['oauth_token'])
+    get_app_db().update_item(user_id, 'request_token', auth.request_token['oauth_token'])
     return Response(status_code=302, body='', headers={'Location': redirect_url})
 
 
@@ -62,17 +76,17 @@ def redirect():
     """
     verifier = app.current_request.query_params.get('oauth_verifier')
     auth = tweepy_auth()
-    token = _get_user_attribute('twitter-api', 'request_token')
-    _update_user('twitter-api', 'request_token', '')
+    token = get_app_db().get_item('twitter-api')['request_token']
+    get_app_db().update_item('twitter-api', 'request_token', '')
     auth.request_token = {'oauth_token': token,
                           'oauth_token_secret': verifier}
 
     auth.get_access_token(verifier)
     api = tweepy.API(auth)
     user_id = api.me().id_str
-    _create_user(user_id)
-    _update_user(user_id, 'access_token', auth.access_token)
-    _update_user(user_id, 'access_token_secret', auth.access_token_secret)
+    get_app_db().add_item(user_id)
+    get_app_db().update_item(user_id, 'access_token', auth.access_token)
+    get_app_db().update_item(user_id, 'access_token_secret', auth.access_token_secret)
 
     _get_people_to_follow(api)
 
@@ -80,8 +94,8 @@ def redirect():
 
 
 def capacity(user_id: str, requests_to_process: int) -> bool:
-    all_requests_today = _get_user_attribute('twitter-api', 'count')
-    user_requests_today = _get_user_attribute(user_id, 'count')
+    all_requests_today = get_app_db().get_item('twitter-api')['count']
+    user_requests_today = get_app_db().get_item(user_id)['count']
     count_requests_to_make = requests_to_process
     return (user_requests_today + count_requests_to_make) <= 400 or (all_requests_today + count_requests_to_make) <= 1000
 
@@ -96,16 +110,16 @@ def _get_people_to_follow(twitter_api: tweepy.API):
     # hard-coding the list for the data collective - change this or move to an environment variable if needed
     now_following = set(twitter_api.followers())
     to_follow = in_list.difference(now_following)
-    all_requests_today = _get_user_attribute('twitter-api', 'count')
-    user_requests_today = _get_user_attribute(twitter_api.me().id_str, 'count')
+    all_requests_today = get_app_db().get_item('twitter-api')['count']
+    user_requests_today = get_app_db().get_item(twitter_api.me().id_str)['count']
     count_requests_to_make = len(to_follow)
     if not capacity(twitter_api.me().id_str, count_requests_to_make):
         requests_to_process_now = 0
     else:
         requests_left_today = ((TWITTER_LIMIT - all_requests_today), (USER_LIMIT - user_requests_today), count_requests_to_make)
         requests_to_process_now = min(requests_left_today)
-        _update_user('twitter-api', 'count', requests_to_process_now)
-        _update_user(twitter_api.me().id_str, 'count', requests_to_process_now)
+        get_app_db().update_item('twitter-api', 'count', requests_to_process_now)
+        get_app_db().update_item(twitter_api.me().id_str, 'count', requests_to_process_now)
     for i, follower in enumerate(to_follow):
         message = json.dumps({'user_id': twitter_api.me().id_str, 'follower_id': follower.id_str})
         do_now_queue, do_later_queue = queues()
@@ -139,7 +153,7 @@ def process_follow_from_record(record: SQSRecord):
     responds with a 429, we've asked too many times, and will need to back off.
     """
     message_body = json.loads(record.body)
-    user = _get_user(message_body['user_id'])
+    user = get_app_db().get_item(message_body['user_id'])
     auth = tweepy_auth()
     auth.set_access_token(user['access_token'], user['access_token_secret'])
     api = tweepy.API(auth)
@@ -149,45 +163,45 @@ def process_follow_from_record(record: SQSRecord):
         do_later_queue = queues()[1]
         do_later_queue.send_message(json.dumps(message_body))
 
-
-def _update_user(user_id: str, attribute: str, updated_value: Union[int, str]):
-    dynamodb_table.update_item(
-        Key={
-            'user_id': user_id,
-        },
-        UpdateExpression=f'SET {attribute} = :val1',
-        ExpressionAttributeValues={
-            ':val1': updated_value
-        }
-    )
-    return None
-
-
-def _get_user_attribute(user_id: str, attribute='count'):
-    try:
-        item = _get_user(user_id)
-    except KeyError:
-        # user does not exist
-        raise Exception
-    return item[attribute]
-
-
-def _get_user(user_id: str):
-    response = dynamodb_table.get_item(
-        Key={
-            'user_id': user_id
-        }
-    )
-    return response['Item']
-
-
-def _create_user(user_id: str):
-    dynamodb_table.put_item(
-        Item={
-            'user_id': user_id,
-            'count': 0,
-            'access_token': '',
-            'access_token_secret': '',
-        }
-    )
-    return None
+#
+# def _update_user(user_id: str, attribute: str, updated_value: Union[int, str]):
+#     dynamodb_table.update_item(
+#         Key={
+#             'user_id': user_id,
+#         },
+#         UpdateExpression=f'SET {attribute} = :val1',
+#         ExpressionAttributeValues={
+#             ':val1': updated_value
+#         }
+#     )
+#     return None
+#
+#
+# def _get_user_attribute(user_id: str, attribute='count'):
+#     try:
+#         item = _get_user(user_id)
+#     except KeyError:
+#         # user does not exist
+#         raise Exception
+#     return item[attribute]
+#
+#
+# def _get_user(user_id: str):
+#     response = dynamodb_table.get_item(
+#         Key={
+#             'user_id': user_id
+#         }
+#     )
+#     return response['Item']
+#
+#
+# def _create_user(user_id: str):
+#     dynamodb_table.put_item(
+#         Item={
+#             'user_id': user_id,
+#             'count': 0,
+#             'access_token': '',
+#             'access_token_secret': '',
+#         }
+#     )
+#     return None

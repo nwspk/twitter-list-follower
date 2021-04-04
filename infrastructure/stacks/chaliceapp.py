@@ -18,24 +18,27 @@ class ChaliceApp(cdk.Stack):
         super().__init__(scope, id, **kwargs)
         self.dynamodb_table = self._create_ddb_table()
         self.now_queue = self._create_sqs_queue('do-now')
+        self.later_queue = self._create_sqs_queue('do-later')
         self.chalice = Chalice(
             self, 'ChaliceApp', source_dir=RUNTIME_SOURCE_DIR,
             stage_config={
                 'environment_variables': {
                     'APP_TABLE_NAME': self.dynamodb_table.table_name,
-                    'APP_DO_NOW_QUEUE_NAME': self.now_queue.queue_name
+                    'APP_DO_NOW_QUEUE_NAME': self.now_queue.queue_name,
+                    'APP_DO_LATER_QUEUE_NAME': self.later_queue.queue_name
                 }
             }
         )
         self.dynamodb_table.grant_read_write_data(
             self.chalice.get_role('DefaultRole')
         )
-        self.now_queue.grant_consume_messages(
-            self.chalice.get_role('DefaultRole')
-        )
-        self.now_queue.grant_send_messages(
-            self.chalice.get_role('DefaultRole')
-        )
+        for queue in (self.now_queue, self.later_queue):
+            queue.grant_send_messages(
+                self.chalice.get_role('DefaultRole')
+            )
+            queue.grant_consume_messages(
+                self.chalice.get_role('DefaultRole')
+            )
 
     def _create_ddb_table(self, name: str='AppTable'):
         dynamodb_table = dynamodb.Table(

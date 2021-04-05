@@ -93,13 +93,6 @@ def redirect():
     return {'redirected': 'here'}
 
 
-def capacity(user_id: str, requests_to_process: int) -> bool:
-    all_requests_today = get_app_db().get_item('twitter-api')['count']
-    user_requests_today = get_app_db().get_item(user_id)['count']
-    count_requests_to_make = requests_to_process
-    return (user_requests_today + count_requests_to_make) <= 400 or (all_requests_today + count_requests_to_make) <= 1000
-
-
 def _get_people_to_follow(twitter_api: tweepy.API):
     """
     This will access the Twitter API. It takes the Twitter list we'll be following and draws down the users in that list. It then filters out those that
@@ -113,7 +106,7 @@ def _get_people_to_follow(twitter_api: tweepy.API):
     all_requests_today = get_app_db().get_item('twitter-api')['count']
     user_requests_today = get_app_db().get_item(twitter_api.me().id_str)['count']
     count_requests_to_make = len(to_follow)
-    if not capacity(twitter_api.me().id_str, count_requests_to_make):
+    if user_requests_today >= 400 or all_requests_today >= 1000:
         requests_to_process_now = 0
     else:
         requests_left_today = ((TWITTER_LIMIT - all_requests_today), (USER_LIMIT - user_requests_today), count_requests_to_make)

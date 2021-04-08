@@ -34,7 +34,7 @@ class ChaliceApp(cdk.Stack):
         self.dynamodb_table.grant_read_write_data(
             self.chalice.get_role('DefaultRole')
         )
-        for queue in (self.now_queue, self.later_queue):
+        for queue in (self.now_queue, self.later_queue, self.process_queue):
             queue.grant_send_messages(
                 self.chalice.get_role('DefaultRole')
             )

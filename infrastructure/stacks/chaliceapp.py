@@ -19,13 +19,15 @@ class ChaliceApp(cdk.Stack):
         self.dynamodb_table = self._create_ddb_table()
         self.now_queue = self._create_sqs_queue('do-now')
         self.later_queue = self._create_sqs_queue('do-later')
+        self.process_queue = self._create_sqs_queue('process')
         self.chalice = Chalice(
             self, 'ChaliceApp', source_dir=RUNTIME_SOURCE_DIR,
             stage_config={
                 'environment_variables': {
                     'APP_TABLE_NAME': self.dynamodb_table.table_name,
                     'APP_DO_NOW_QUEUE_NAME': self.now_queue.queue_name,
-                    'APP_DO_LATER_QUEUE_NAME': self.later_queue.queue_name
+                    'APP_DO_LATER_QUEUE_NAME': self.later_queue.queue_name,
+                    'APP_PROCESS_QUEUE_NAME': self.process_queue.queue_name,
                 }
             }
         )

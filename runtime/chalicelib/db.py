@@ -8,7 +8,7 @@ class TodoDB(object):
     def add_item(self, user_id: str):
         pass
 
-    def get_item(self, user_id):
+    def get_item(self, user_id) -> dict:
         pass
 
     def delete_item(self, uid):
@@ -53,3 +53,11 @@ class DynamoDBTodo(TodoDB):
         item = self.get_item(user_id)
         item[attribute] = updated_value
         self._table.put_item(Item=item)
+
+    def reset_counts(self):
+        response = self._table.scan()
+        data = response['Items']
+
+        while 'LastEvaluatedKey' in response:
+            response = self._table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+            data.extend(response['Items'])

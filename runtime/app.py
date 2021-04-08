@@ -1,20 +1,21 @@
 import json
 import os
+import time
 import boto3
 from chalice import Chalice, Response, Rate
 from chalice.app import SQSEvent, SQSRecord, CloudWatchEvent
 from chalicelib import db
-from typing import Tuple
+from typing import Tuple, List, Set
 import tweepy
 import sys
 from boto3.dynamodb import table
+from tweepy.models import User
 
-app = Chalice(app_name='cdk-list-follower')
+app = Chalice(app_name='twitter-list-follower')
 app.debug = True
 dynamodb = boto3.resource('dynamodb')
 dynamodb_table = dynamodb.Table(os.environ.get('APP_TABLE_NAME', ''))
 sqs = boto3.resource('sqs')
-do_now_queue_name = sqs.Queue(os.environ.get('APP_DO_NOW_QUEUE_NAME', ''))
 
 TWITTER_LIMIT = 1000
 USER_LIMIT = 400
@@ -68,16 +69,24 @@ def follow_the_list():
     return Response(status_code=302, body='', headers={'Location': redirect_url})
 
 
+def reconstruct_twitter_api(user_id: str) -> tweepy.API:
+    auth = tweepy_auth()
+    user = get_app_db().get_item(user_id)
+    auth.set_access_token(user['access_token'], user['access_token_secret'])
+    return tweepy.API(auth)
+
+
 @app.route('/redirect', methods=['GET'])
 def redirect():
     """
     This view receives the redirect from the Twitter auth API. The request body will contain the authorisation tokens. From here, we call _get_people_to_follow
     to find, filter, and enqueue each request.
     """
-    verifier = app.current_request.query_params.get('oauth_verifier')
-    auth = tweepy_auth()
     token = get_app_db().get_item('twitter-api')['request_token']
     get_app_db().update_item('twitter-api', 'request_token', '')
+
+    verifier = app.current_request.query_params.get('oauth_verifier')
+    auth = tweepy_auth()
     auth.request_token = {'oauth_token': token,
                           'oauth_token_secret': verifier}
 
@@ -88,24 +97,29 @@ def redirect():
     get_app_db().update_item(user_id, 'access_token', auth.access_token)
     get_app_db().update_item(user_id, 'access_token_secret', auth.access_token_secret)
 
-    _get_people_to_follow(api)
+    process_queue = sqs.Queue(get_queue_url(os.environ.get('APP_PROCESS_QUEUE_NAME', '')))
+    process_queue.send_message(MessageBody=user_id)
+
+    # enqueue_follows(*get_people_to_follow(api), twitter_api=api)
+    # this takes too long - needs to be queued
 
     return {'redirected': 'here'}
 
 
-def _get_people_to_follow(twitter_api: tweepy.API):
+def get_people_to_follow(twitter_api: tweepy.API):
     """
     This will access the Twitter API. It takes the Twitter list we'll be following and draws down the users in that list. It then filters out those that
     the user already follows, and then enqueues each request. If we've made 1,000 requests today, or 400 for this user, the request will have to be added to
     the 'do later' queue.
     """
-    in_list = set(twitter_api.get_list(list_id='1358187814769287171'))
+    to_follow: List[User] = [
+        member for member in tweepy.Cursor(twitter_api.list_members, **{'list_id': os.environ.get('LIST_ID', '1358187814769287171')}).items()
+    ]
     # hard-coding the list for the data collective - change this or move to an environment variable if needed
-    now_following = set(twitter_api.followers())
-    to_follow = in_list.difference(now_following)
-    all_requests_today = get_app_db().get_item('twitter-api')['count']
-    user_requests_today = get_app_db().get_item(twitter_api.me().id_str)['count']
     count_requests_to_make = len(to_follow)
+
+    all_requests_today = get_app_db().get_item('twitter-api').get('count', 0)
+    user_requests_today = get_app_db().get_item(twitter_api.me().id_str).get('count', 0)
     if user_requests_today >= 400 or all_requests_today >= 1000:
         requests_to_process_now = 0
     else:
@@ -113,13 +127,22 @@ def _get_people_to_follow(twitter_api: tweepy.API):
         requests_to_process_now = min(requests_left_today)
         get_app_db().update_item('twitter-api', 'count', requests_to_process_now)
         get_app_db().update_item(twitter_api.me().id_str, 'count', requests_to_process_now)
-    for i, follower in enumerate(to_follow):
-        message = json.dumps({'user_id': twitter_api.me().id_str, 'follower_id': follower.id_str})
-        do_now_queue, do_later_queue = queues()
-        if i >= requests_to_process_now:
-            do_later_queue.send_message(MessageBody=message)
-        else:
-            do_now_queue.send_message(MessageBody=message)
+    return to_follow, requests_to_process_now
+
+
+@app.on_sqs_message(queue='process', batch_size=1)
+def enqueue_follows(event: SQSEvent):
+    for record in event:
+        user_id = record.body
+        twitter_api = reconstruct_twitter_api(user_id)
+        to_follow, requests_to_process_now = get_people_to_follow(twitter_api)
+        for i, follower in enumerate(to_follow):
+            message = json.dumps({'user_id': user_id, 'follower_id': follower.id_str})
+            do_now_queue, do_later_queue = queues()
+            if i >= requests_to_process_now:
+                do_later_queue.send_message(MessageBody=message)
+            else:
+                do_now_queue.send_message(MessageBody=message)
 
 
 @app.schedule(Rate(1, Rate.DAYS))
@@ -128,7 +151,7 @@ def process_later(event: CloudWatchEvent):
     This function checks if there's capacity to do any following today. If there is, it polls the 'do_later_queue' to see if there's anything to process.
     If there is it processes the follows.
     """
-    pass
+    db = get_app_db()
 
 
 @app.on_sqs_message(queue='do-now', batch_size=1)
@@ -137,7 +160,15 @@ def process_now(event: SQSEvent):
     This function processes all items in the queue right now
     """
     for record in event:
-        process_follow_from_record(record)
+        if int(os.environ.get('BLOCKED_UNTIL', 0.0)) <= int(time.time()):
+            # not blocked
+            try:
+                process_follow_from_record(record)
+            except tweepy.RateLimitError as e:
+                os.environ['BLOCKED_UNTIL'] = str(int(time.time()) + 86400)
+        else:
+            do_later_queue = queues()[1]
+            do_later_queue.send_message(record)
 
 
 def process_follow_from_record(record: SQSRecord):
@@ -152,49 +183,6 @@ def process_follow_from_record(record: SQSRecord):
     api = tweepy.API(auth)
     try:
         api.create_friendship(id=message_body['follower_id'])
-    except tweepy.error.RateLimitError:
+    except tweepy.TweepError:
         do_later_queue = queues()[1]
         do_later_queue.send_message(json.dumps(message_body))
-
-#
-# def _update_user(user_id: str, attribute: str, updated_value: Union[int, str]):
-#     dynamodb_table.update_item(
-#         Key={
-#             'user_id': user_id,
-#         },
-#         UpdateExpression=f'SET {attribute} = :val1',
-#         ExpressionAttributeValues={
-#             ':val1': updated_value
-#         }
-#     )
-#     return None
-#
-#
-# def _get_user_attribute(user_id: str, attribute='count'):
-#     try:
-#         item = _get_user(user_id)
-#     except KeyError:
-#         # user does not exist
-#         raise Exception
-#     return item[attribute]
-#
-#
-# def _get_user(user_id: str):
-#     response = dynamodb_table.get_item(
-#         Key={
-#             'user_id': user_id
-#         }
-#     )
-#     return response['Item']
-#
-#
-# def _create_user(user_id: str):
-#     dynamodb_table.put_item(
-#         Item={
-#             'user_id': user_id,
-#             'count': 0,
-#             'access_token': '',
-#             'access_token_secret': '',
-#         }
-#     )
-#     return None

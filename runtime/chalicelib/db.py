@@ -1,4 +1,7 @@
+import os
 from typing import Union
+
+import boto3
 
 
 class TwitterListDB(object):
@@ -63,3 +66,10 @@ class DynamoDBTwitterList(TwitterListDB):
             data.extend(response['Items'])
         for datum in data:
             self.update_item(user_id=datum['user_id'], attribute='count', updated_value=0)
+
+    @staticmethod
+    def get_app_db():
+        return DynamoDBTwitterList(
+            boto3.resource('dynamodb').Table(
+                os.environ['APP_TABLE_NAME'])
+        )

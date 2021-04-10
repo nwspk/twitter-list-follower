@@ -5,6 +5,7 @@ import boto3
 from chalice import Response, Rate
 from chalice.app import SQSEvent, SQSRecord, CloudWatchEvent
 from runtime.chalicelib import db
+from runtime.chalicelib.process_follow import ProcessFollow
 from typing import Tuple, List, Set
 import tweepy
 import sys
@@ -27,10 +28,7 @@ _DB = None
 def get_app_db() -> table:
     global _DB
     if _DB is None:
-        _DB = db.DynamoDBTwitterList(
-            boto3.resource('dynamodb').Table(
-                os.environ['APP_TABLE_NAME'])
-        )
+        _DB = db.DynamoDBTwitterList.get_app_db()
     return _DB
 
 
@@ -47,9 +45,7 @@ def queues() -> Tuple[sqs.Queue, sqs.Queue]:
 
 
 def tweepy_auth():
-    return tweepy.OAuthHandler(
-        os.environ.get('CONSUMER_KEY'), os.environ.get('CONSUMER_SECRET'), os.environ.get('CALLBACK_URL')
-    )
+    return ProcessFollow.tweepy_auth()
 
 
 @app.route('/')
@@ -71,10 +67,7 @@ def follow_the_list():
 
 
 def reconstruct_twitter_api(user_id: str) -> tweepy.API:
-    auth = tweepy_auth()
-    user = get_app_db().get_item(user_id)
-    auth.set_access_token(user['access_token'], user['access_token_secret'])
-    return tweepy.API(auth)
+    return ProcessFollow().reconstruct_twitter_api(user_id)
 
 
 @app.route('/redirect', methods=['GET'])

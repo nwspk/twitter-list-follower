@@ -35,7 +35,7 @@ class TestRoutes:
             (1, [{"user_id": "123", "follower_id": "0"}], [{"user_id": "123", "follower_id": "1"}])
         ]
     )
-    def test_enqueue_followers(self, mock_queues, mock_get_people_to_follow, mock_db, mock_api, requests_to_process_now, expected_now, expected_later):
+    def test_enqueue_followers(self, mock_queues, mock_get_people_to_follow, mock_db, mock_api, requests_to_process_now, expected_now, expected_later, test_client):
         to_follow = [MagicMock(), MagicMock()]
         mock_later_queue = MagicMock()
         mock_now_queue = MagicMock()
@@ -45,13 +45,12 @@ class TestRoutes:
             u.id_str = str(i)
         mock_get_people_to_follow.return_value = (to_follow, requests_to_process_now)
         body = "123"
-        with Client(views.app) as client:
-            client.lambda_.invoke(
-                "enqueue_follows",
-                client.events.generate_sqs_event(message_bodies=[body], queue_name='process')
-            )
-            expected_messages_now = [call(MessageBody=message) for message in map(json.dumps, expected_now)]
-            expected_messages_later = [call(MessageBody=message) for message in map(json.dumps, expected_later)]
-            mock_now_queue.send_message.assert_has_calls(expected_messages_now)
-            mock_later_queue.send_message.assert_has_calls(expected_messages_later)
+        test_client.lambda_.invoke(
+            "enqueue_follows",
+            test_client.events.generate_sqs_event(message_bodies=[body], queue_name='process')
+        )
+        expected_messages_now = [call(MessageBody=message) for message in map(json.dumps, expected_now)]
+        expected_messages_later = [call(MessageBody=message) for message in map(json.dumps, expected_later)]
+        mock_now_queue.send_message.assert_has_calls(expected_messages_now)
+        mock_later_queue.send_message.assert_has_calls(expected_messages_later)
 

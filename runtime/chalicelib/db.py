@@ -1,7 +1,7 @@
 from typing import Union
 
 
-class TodoDB(object):
+class TwitterListDB(object):
     def list_items(self):
         pass
 
@@ -18,7 +18,7 @@ class TodoDB(object):
         pass
 
 
-class DynamoDBTodo(TodoDB):
+class DynamoDBTwitterList(TwitterListDB):
     def __init__(self, table_resource):
         self._table = table_resource
 
@@ -61,3 +61,5 @@ class DynamoDBTodo(TodoDB):
         while 'LastEvaluatedKey' in response:
             response = self._table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
             data.extend(response['Items'])
+        for datum in data:
+            self.update_item(user_id=datum['user_id'], attribute='count', updated_value=0)

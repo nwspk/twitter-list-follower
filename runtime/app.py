@@ -26,7 +26,7 @@ _DB = None
 def get_app_db() -> table:
     global _DB
     if _DB is None:
-        _DB = db.DynamoDBTodo(
+        _DB = db.DynamoDBTwitterList(
             boto3.resource('dynamodb').Table(
                 os.environ['APP_TABLE_NAME'])
         )
@@ -145,13 +145,23 @@ def enqueue_follows(event: SQSEvent):
                 do_now_queue.send_message(MessageBody=message)
 
 
-@app.schedule(Rate(1, Rate.DAYS))
+@app.schedule(Rate(1, Rate.HOURS))
 def process_later(event: CloudWatchEvent):
     """
     This function checks if there's capacity to do any following today. If there is, it polls the 'do_later_queue' to see if there's anything to process.
     If there is it processes the follows.
     """
-    db = get_app_db()
+    if int(os.environ.get('BLOCKED_UNTIL', 0.0)) > int(time.time()):
+        pass
+    else:
+        db = get_app_db()
+        db.reset_counts()
+        do_later_queue: sqs.Queue = queues()[1]
+        while True:
+            message = do_later_queue.receive_message(VisibilityTimeout=1, MaxNumberOfMessages=10, WaitTimeSeconds=5)
+            if message:
+                process_now(message)
+                # update the db here?
 
 
 @app.on_sqs_message(queue='do-now', batch_size=1)
@@ -164,8 +174,9 @@ def process_now(event: SQSEvent):
             # not blocked
             try:
                 process_follow_from_record(record)
-            except tweepy.RateLimitError as e:
+            except tweepy.TweepError as e:
                 os.environ['BLOCKED_UNTIL'] = str(int(time.time()) + 86400)
+                do_later_queue.send_message(record)
         else:
             do_later_queue = queues()[1]
             do_later_queue.send_message(record)

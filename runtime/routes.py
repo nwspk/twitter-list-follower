@@ -15,8 +15,6 @@ from runtime import create_app
 
 app = create_app()
 app.debug = True
-dynamodb = boto3.resource('dynamodb')
-dynamodb_table = dynamodb.Table(os.environ.get('APP_TABLE_NAME', ''))
 sqs = boto3.resource('sqs')
 
 TWITTER_LIMIT = 1000
@@ -48,6 +46,10 @@ def tweepy_auth():
     return ProcessFollow.tweepy_auth()
 
 
+def reconstruct_twitter_api(user_id: str) -> tweepy.API:
+    return ProcessFollow().reconstruct_twitter_api(user_id)
+
+
 @app.route('/')
 def index():
     return {'hello': 'world'}
@@ -64,10 +66,6 @@ def follow_the_list():
     redirect_url = auth.get_authorization_url()
     get_app_db().update_item(user_id, 'request_token', auth.request_token['oauth_token'])
     return Response(status_code=302, body='', headers={'Location': redirect_url})
-
-
-def reconstruct_twitter_api(user_id: str) -> tweepy.API:
-    return ProcessFollow().reconstruct_twitter_api(user_id)
 
 
 @app.route('/redirect', methods=['GET'])
@@ -98,30 +96,6 @@ def redirect():
     # this takes too long - needs to be queued
 
     return {'redirected': 'here'}
-
-
-def get_people_to_follow(twitter_api: tweepy.API) -> Tuple[List[User], int]:
-    """
-    This will access the Twitter API. It takes the Twitter list we'll be following and draws down the users in that list. It then filters out those that
-    the user already follows, and then enqueues each request. If we've made 1,000 requests today, or 400 for this user, the request will have to be added to
-    the 'do later' queue.
-    """
-    to_follow: List[User] = [
-        member for member in tweepy.Cursor(twitter_api.list_members, list_id=os.environ.get('LIST_ID', '1358187814769287171')).items()
-    ]
-    # hard-coding the list for the data collective - change this or move to an environment variable if needed
-    count_requests_to_make = len(to_follow)
-
-    all_requests_today = get_app_db().get_item('twitter-api').get('count', 0)
-    user_requests_today = get_app_db().get_item(twitter_api.me().id_str).get('count', 0)
-    if user_requests_today >= 400 or all_requests_today >= 1000:
-        requests_to_process_now = 0
-    else:
-        requests_left_today = ((TWITTER_LIMIT - all_requests_today), (USER_LIMIT - user_requests_today), count_requests_to_make)
-        requests_to_process_now = min(requests_left_today)
-        get_app_db().update_item('twitter-api', 'count', requests_to_process_now)
-        get_app_db().update_item(twitter_api.me().id_str, 'count', requests_to_process_now)
-    return to_follow, requests_to_process_now
 
 
 @app.on_sqs_message(queue='process', batch_size=1, name="enqueue_follows")
@@ -163,6 +137,7 @@ def process_now(event: SQSEvent):
     """
     This function processes all items in the queue right now
     """
+    do_later_queue = queues()[1]
     for record in event:
         if int(os.environ.get('BLOCKED_UNTIL', 0.0)) <= int(time.time()):
             # not blocked
@@ -172,8 +147,31 @@ def process_now(event: SQSEvent):
                 os.environ['BLOCKED_UNTIL'] = str(int(time.time()) + 86400)
                 do_later_queue.send_message(record)
         else:
-            do_later_queue = queues()[1]
             do_later_queue.send_message(record)
+
+
+def get_people_to_follow(twitter_api: tweepy.API) -> Tuple[List[User], int]:
+    """
+    This will access the Twitter API. It takes the Twitter list we'll be following and draws down the users in that list. It then filters out those that
+    the user already follows, and then enqueues each request. If we've made 1,000 requests today, or 400 for this user, the request will have to be added to
+    the 'do later' queue.
+    """
+    to_follow: List[User] = [
+        member for member in tweepy.Cursor(twitter_api.list_members, list_id=os.environ.get('LIST_ID', '1358187814769287171')).items()
+    ]
+    # hard-coding the list for the data collective - change this or move to an environment variable if needed
+    count_requests_to_make = len(to_follow)
+
+    all_requests_today = get_app_db().get_item('twitter-api').get('count', 0)
+    user_requests_today = get_app_db().get_item(twitter_api.me().id_str).get('count', 0)
+    if user_requests_today >= 400 or all_requests_today >= 1000:
+        requests_to_process_now = 0
+    else:
+        requests_left_today = ((TWITTER_LIMIT - all_requests_today), (USER_LIMIT - user_requests_today), count_requests_to_make)
+        requests_to_process_now = min(requests_left_today)
+        get_app_db().update_item('twitter-api', 'count', requests_to_process_now)
+        get_app_db().update_item(twitter_api.me().id_str, 'count', requests_to_process_now)
+    return to_follow, requests_to_process_now
 
 
 def process_follow_from_record(record: SQSRecord):

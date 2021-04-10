@@ -106,14 +106,14 @@ def redirect():
     return {'redirected': 'here'}
 
 
-def get_people_to_follow(twitter_api: tweepy.API):
+def get_people_to_follow(twitter_api: tweepy.API) -> Tuple[List[User], int]:
     """
     This will access the Twitter API. It takes the Twitter list we'll be following and draws down the users in that list. It then filters out those that
     the user already follows, and then enqueues each request. If we've made 1,000 requests today, or 400 for this user, the request will have to be added to
     the 'do later' queue.
     """
     to_follow: List[User] = [
-        member for member in tweepy.Cursor(twitter_api.list_members, **{'list_id': os.environ.get('LIST_ID', '1358187814769287171')}).items()
+        member for member in tweepy.Cursor(twitter_api.list_members, list_id=os.environ.get('LIST_ID', '1358187814769287171')).items()
     ]
     # hard-coding the list for the data collective - change this or move to an environment variable if needed
     count_requests_to_make = len(to_follow)

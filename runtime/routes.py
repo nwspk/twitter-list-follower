@@ -2,16 +2,17 @@ import json
 import os
 import time
 import boto3
-from chalice import Chalice, Response, Rate
+from chalice import Response, Rate
 from chalice.app import SQSEvent, SQSRecord, CloudWatchEvent
-from chalicelib import db
+from runtime.chalicelib import db
 from typing import Tuple, List, Set
 import tweepy
 import sys
 from boto3.dynamodb import table
 from tweepy.models import User
+from runtime import create_app
 
-app = Chalice(app_name='twitter-list-follower')
+app = create_app()
 app.debug = True
 dynamodb = boto3.resource('dynamodb')
 dynamodb_table = dynamodb.Table(os.environ.get('APP_TABLE_NAME', ''))
@@ -130,7 +131,7 @@ def get_people_to_follow(twitter_api: tweepy.API) -> Tuple[List[User], int]:
     return to_follow, requests_to_process_now
 
 
-@app.on_sqs_message(queue='process', batch_size=1)
+@app.on_sqs_message(queue='process', batch_size=1, name="enqueue_follows")
 def enqueue_follows(event: SQSEvent):
     for record in event:
         user_id = record.body

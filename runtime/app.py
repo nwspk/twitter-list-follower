@@ -1,20 +1,19 @@
 import json
 import os
 import time
-import boto3
 from chalice import Response, Rate
 from chalice.app import SQSEvent, SQSRecord, CloudWatchEvent, Chalice
-from chalicelib import db
+from chalicelib import db, utils
 from chalicelib.process_follow import ProcessFollow
-from typing import Tuple, List, Set
+from typing import Tuple, List
 import tweepy
 import sys
 from boto3.dynamodb import table
 from tweepy.models import User
+from chalicelib.utils import get_queue_url, queues
 
 app = Chalice(app_name='twitter-list-follower')
 app.debug = True
-sqs = boto3.resource('sqs')
 
 TWITTER_LIMIT = 1000
 USER_LIMIT = 400
@@ -27,18 +26,6 @@ def get_app_db() -> table:
     if _DB is None:
         _DB = db.DynamoDBTwitterList.get_app_db()
     return _DB
-
-
-def get_queue_url(queue_name: str):
-    sqs_client = boto3.client("sqs")
-    response = sqs_client.get_queue_url(
-        QueueName=queue_name,
-    )
-    return response["QueueUrl"]
-
-
-def queues() -> Tuple[sqs.Queue, sqs.Queue]:
-    return sqs.Queue(get_queue_url(os.environ.get('APP_DO_NOW_QUEUE_NAME', ''))), sqs.Queue(get_queue_url(os.environ.get('APP_DO_LATER_QUEUE_NAME', '')))
 
 
 def tweepy_auth():
@@ -88,7 +75,7 @@ def redirect():
     get_app_db().update_item(user_id, 'access_token', auth.access_token)
     get_app_db().update_item(user_id, 'access_token_secret', auth.access_token_secret)
 
-    process_queue = sqs.Queue(get_queue_url(os.environ.get('APP_PROCESS_QUEUE_NAME', '')))
+    process_queue = utils.queues()[2]
     process_queue.send_message(MessageBody=user_id)
 
     # enqueue_follows(*get_people_to_follow(api), twitter_api=api)
@@ -123,7 +110,7 @@ def process_later(event: CloudWatchEvent):
     else:
         db = get_app_db()
         db.reset_counts()
-        do_later_queue: sqs.Queue = queues()[1]
+        do_later_queue = queues()[1]
         while True:
             message = do_later_queue.receive_message(VisibilityTimeout=1, MaxNumberOfMessages=10, WaitTimeSeconds=5)
             if message:

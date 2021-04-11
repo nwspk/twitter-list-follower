@@ -1,6 +1,6 @@
 import os
 import boto3
-from runtime.chalicelib import db
+from . import db
 import tweepy
 
 

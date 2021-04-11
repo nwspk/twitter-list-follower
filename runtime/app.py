@@ -3,17 +3,16 @@ import os
 import time
 import boto3
 from chalice import Response, Rate
-from chalice.app import SQSEvent, SQSRecord, CloudWatchEvent
-from runtime.chalicelib import db
-from runtime.chalicelib.process_follow import ProcessFollow
+from chalice.app import SQSEvent, SQSRecord, CloudWatchEvent, Chalice
+from chalicelib import db
+from chalicelib.process_follow import ProcessFollow
 from typing import Tuple, List, Set
 import tweepy
 import sys
 from boto3.dynamodb import table
 from tweepy.models import User
-from runtime import create_app
 
-app = create_app()
+app = Chalice(app_name='twitter-list-follower')
 app.debug = True
 sqs = boto3.resource('sqs')
 

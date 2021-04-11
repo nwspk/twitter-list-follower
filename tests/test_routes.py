@@ -4,7 +4,7 @@ import os
 from chalice.test import Client
 from tweepy.models import User
 from unittest.mock import patch, MagicMock, create_autospec, call
-import runtime.routes as views
+import runtime.app as views
 import pytest
 from runtime.chalicelib.db import DynamoDBTwitterList
 

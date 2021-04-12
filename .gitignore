@@ -132,3 +132,4 @@ runtime/deployments
 .idea
 *.out
 .chalice
+/runtime/runtime-venv

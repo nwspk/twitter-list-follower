@@ -4,29 +4,29 @@ import os
 from chalice.test import Client
 from tweepy.models import User
 from unittest.mock import patch, MagicMock, create_autospec, call
-import runtime.app as views
+import app as views
 import pytest
-from runtime.chalicelib.db import DynamoDBTwitterList
+from chalicelib.db import DynamoDBTwitterList
 
 
-@patch('runtime.routes.tweepy.API', autospec=True)
+@patch('app.tweepy.API', autospec=True)
 class TestRoutes:
 
     @pytest.mark.parametrize(
         "all_requests, user_requests, expected",
         [(0, 0, 2), (1000, 0, 0), (0, 400, 0), (1000, 400, 0)]
     )
-    @patch('runtime.routes._DB', return_value=create_autospec(DynamoDBTwitterList))
-    @patch('runtime.routes.tweepy.Cursor', autospec=True)
+    @patch('app.get_app_db')
+    @patch('app.tweepy.Cursor', autospec=True)
     def test_get_people_to_follow(self, mock_cursor, mock_db, mock_api, all_requests, user_requests, expected):
         followers = [User(), User()]
         mock_cursor.return_value.items.return_value = followers
-        mock_db.get_item.side_effect = [{'count': all_requests}, {'count': user_requests}]
+        mock_db.return_value.get_item.side_effect = [{'count': all_requests}, {'count': user_requests}]
         assert views.get_people_to_follow(mock_api) == (followers, expected)
 
-    @patch('runtime.chalicelib.db.DynamoDBTwitterList.get_app_db', return_value=create_autospec(DynamoDBTwitterList))
-    @patch('runtime.routes.get_people_to_follow')
-    @patch('runtime.routes.queues')
+    @patch('chalicelib.db.DynamoDBTwitterList.get_app_db', return_value=create_autospec(DynamoDBTwitterList))
+    @patch('app.get_people_to_follow')
+    @patch('app.queues')
     @pytest.mark.parametrize(
         ["requests_to_process_now", "expected_now", "expected_later"],
         [

@@ -1,4 +1,4 @@
-from runtime.app import app
+from app import app
 from pytest import fixture
 from chalice.test import Client
 

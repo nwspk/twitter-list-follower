@@ -1,0 +1,22 @@
+{
+  "version": "2.0",
+  "app_name": "twitter-list-follower",
+  "automatic_layer": true,
+  "stages": {
+    "dev": {
+      "environment_variables": {
+        "CONSUMER_KEY": "consumer-key",
+        "CONSUMER_SECRET": "consumer-secret",
+        "CALLBACK_URL": "callback-url",
+        "APP_TABLE_NAME": "AppTable",
+        "APP_DO_NOW_QUEUE_NAME": "",
+        "APP_DO_LATER_QUEUE_NAME": ""
+      },
+      "api_gateway_stage": "api",
+      "lambda_functions": {
+        "api_handler": {
+        }
+      }
+    }
+  }
+}

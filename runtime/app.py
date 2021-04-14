@@ -1,20 +1,20 @@
 import json
 import os
 import time
-import boto3
-from chalice import Response, Rate
-from chalice.app import SQSEvent, SQSRecord, CloudWatchEvent, Chalice
-from chalicelib import db
+from chalice import Rate, Chalice
+from chalice.app import SQSEvent, SQSRecord, CloudWatchEvent
 from chalicelib.process_follow import ProcessFollow
-from typing import Tuple, List, Set
+from chalicelib.db import DynamoDBTwitterList
+from typing import Tuple, List
 import tweepy
-import sys
-from boto3.dynamodb import table
 from tweepy.models import User
+from chalicelib.utils import queues
+from chalicelib.api_blueprint import app as app_
+
 
 app = Chalice(app_name='twitter-list-follower')
+app.register_blueprint(app_)
 app.debug = True
-sqs = boto3.resource('sqs')
 
 TWITTER_LIMIT = 1000
 USER_LIMIT = 400
@@ -22,23 +22,11 @@ USER_LIMIT = 400
 _DB = None
 
 
-def get_app_db() -> table:
+def get_app_db():
     global _DB
     if _DB is None:
-        _DB = db.DynamoDBTwitterList.get_app_db()
+        _DB = DynamoDBTwitterList.get_app_db()
     return _DB
-
-
-def get_queue_url(queue_name: str):
-    sqs_client = boto3.client("sqs")
-    response = sqs_client.get_queue_url(
-        QueueName=queue_name,
-    )
-    return response["QueueUrl"]
-
-
-def queues() -> Tuple[sqs.Queue, sqs.Queue]:
-    return sqs.Queue(get_queue_url(os.environ.get('APP_DO_NOW_QUEUE_NAME', ''))), sqs.Queue(get_queue_url(os.environ.get('APP_DO_LATER_QUEUE_NAME', '')))
 
 
 def tweepy_auth():
@@ -49,54 +37,6 @@ def reconstruct_twitter_api(user_id: str) -> tweepy.API:
     return ProcessFollow().reconstruct_twitter_api(user_id)
 
 
-@app.route('/')
-def index():
-    return {'hello': 'world'}
-
-
-@app.route('/follow', methods=['POST', 'GET'])
-def follow_the_list():
-    """
-    User has clicked a button to confirm they want to follow the list. We grab
-    """
-    sys.stdout.write(os.environ.get('CONSUMER_KEY'))
-    auth = tweepy_auth()
-    user_id = 'twitter-api'
-    redirect_url = auth.get_authorization_url()
-    get_app_db().update_item(user_id, 'request_token', auth.request_token['oauth_token'])
-    return Response(status_code=302, body='', headers={'Location': redirect_url})
-
-
-@app.route('/redirect', methods=['GET'])
-def redirect():
-    """
-    This view receives the redirect from the Twitter auth API. The request body will contain the authorisation tokens. From here, we call _get_people_to_follow
-    to find, filter, and enqueue each request.
-    """
-    token = get_app_db().get_item('twitter-api')['request_token']
-    get_app_db().update_item('twitter-api', 'request_token', '')
-
-    verifier = app.current_request.query_params.get('oauth_verifier')
-    auth = tweepy_auth()
-    auth.request_token = {'oauth_token': token,
-                          'oauth_token_secret': verifier}
-
-    auth.get_access_token(verifier)
-    api = tweepy.API(auth)
-    user_id = api.me().id_str
-    get_app_db().add_item(user_id)
-    get_app_db().update_item(user_id, 'access_token', auth.access_token)
-    get_app_db().update_item(user_id, 'access_token_secret', auth.access_token_secret)
-
-    process_queue = sqs.Queue(get_queue_url(os.environ.get('APP_PROCESS_QUEUE_NAME', '')))
-    process_queue.send_message(MessageBody=user_id)
-
-    # enqueue_follows(*get_people_to_follow(api), twitter_api=api)
-    # this takes too long - needs to be queued
-
-    return {'redirected': 'here'}
-
-
 @app.on_sqs_message(queue='process', batch_size=1, name="enqueue_follows")
 def enqueue_follows(event: SQSEvent):
     for record in event:
@@ -105,7 +45,7 @@ def enqueue_follows(event: SQSEvent):
         to_follow, requests_to_process_now = get_people_to_follow(twitter_api)
         for i, follower in enumerate(to_follow):
             message = json.dumps({'user_id': user_id, 'follower_id': follower.id_str})
-            do_now_queue, do_later_queue = queues()
+            do_now_queue, do_later_queue = queues()[:2]
             if i >= requests_to_process_now:
                 do_later_queue.send_message(MessageBody=message)
             else:
@@ -121,9 +61,9 @@ def process_later(event: CloudWatchEvent):
     if int(os.environ.get('BLOCKED_UNTIL', 0.0)) > int(time.time()):
         pass
     else:
-        db = get_app_db()
+        db = DynamoDBTwitterList.get_app_db()
         db.reset_counts()
-        do_later_queue: sqs.Queue = queues()[1]
+        do_later_queue = queues()[1]
         while True:
             message = do_later_queue.receive_message(VisibilityTimeout=1, MaxNumberOfMessages=10, WaitTimeSeconds=5)
             if message:

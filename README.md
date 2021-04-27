@@ -27,4 +27,4 @@ First things first - let's run the tests and make sure everything's set up corre
 
 If these fail, then something has already gone wrong. Please raise an issue on this project with as much detail as possible, including what the computer spat back at you.
 
-From the root folder - cdk-list-follower - type `cdk deploy` into your terminal
+From the infrastructure folder - cdk-list-follower/infrastructure - type `cdk deploy` into your terminal

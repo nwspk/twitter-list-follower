@@ -10,6 +10,13 @@ If you use this software and enjoy it, consider buying the creator a coffee: [![
 - you'll need [an AWS account, with some billing set up](https://aws.amazon.com/premiumsupport/knowledge-center/create-and-activate-aws-account/). Depending on how may users you have, this app could cost you a fortune - or it could cost you absolutely nothing. Lambda is complicated. I'm going to work on ways to call some of these asynchronously, rather than spamming queues, which is what it does at the moment.
 - you'll need credentials for AWS stored locally. Check out the section of [this guide entitled 'Programmatic Access'](https://docs.aws.amazon.com/general/latest/gr/aws-sec-cred-types.html)
 
+## Setup
+
+- rename `example_config.json` to `config.json`.
+- add the access key and the secret key from your twitter app to the `CONSUMER_KEY` and `CONSUMER_SECRET` fields respectively.
+- you will also need a `CALLBACK_URL`. Because of the way this software has been built, this can be constructed as follows: {domain}/api/redirect. So, if you want to use this on your domain `elephants-count.com`, your redirect url will be `elephants-count.com/api/redirect`. If you're just deploying this as a little backend service, you will be better off going into the AWS console, grabbing the name of the auto-generated domain, and constructing it from there.
+- **make sure** that you've also added the `CALLBACK_URL` to your twitter app. If you don't, you'll get an error, because twitter won't know where to redirect your users to.
+
 ## How to deploy
 
 You'll need to use the terminal. All of these instruction assume you're in the root directory (cdk-list-follower), which means if you type `ls` you should see this:

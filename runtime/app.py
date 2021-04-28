@@ -69,6 +69,8 @@ def process_later(event: CloudWatchEvent):
             if message:
                 process_now(message)
                 # update the db here?
+            else:
+                break
 
 
 @app.on_sqs_message(queue='do-now', batch_size=1)

@@ -54,4 +54,4 @@ def redirect():
     # enqueue_follows(*get_people_to_follow(api), twitter_api=api)
     # this takes too long - needs to be queued
 
-    return {'redirected': 'here'}
+    return Response(status_code=302, body='', headers={'Location': f"https://www.twitter.com/lists/{os.environ.get('LIST_ID', '1358187814769287171')}"})

@@ -16,15 +16,19 @@ You'll need to use the terminal. All of these instruction assume you're in the r
 ```
 infrastructure  LICENSE   README.md requirements.txt  runtime
 ```
-The first thing we're going to do is create a virtual environment to run our python code in:
+Before we start, we need to install the 'cloud delivery kit', or CDK. We do this by typing `npm install -g aws-cdk` and hitting return. If you now try `cdk --version`, you should get something a bit like `1.83.0 (build 827c5f4)`.
+
+Alright, we're ready to go. The first thing we're going to do is create a virtual environment to run our python code in:
 `python3 -m venv venv`
 
 your computer will think about it for a while.
 
-once it's finished thinking, activate the virtual environment by typing `. venv/bin/activate` and install all the project's requirements by typing `pip install -r requirements.txt`. This will isntall everything in `runtime/requirements.txt` and `infrastructure/requirements.txt`
+once it's finished thinking, activate the virtual environment by typing `. venv/bin/activate` and install all the project's requirements by typing `pip install -r requirements.txt`. This will install everything in `runtime/requirements.txt` and `infrastructure/requirements.txt`
 
 First things first - let's run the tests and make sure everything's set up correctly. Change directory to the runtime directory by typing `cd runtime` into your terminal. Then run the tests by typing `python -m pytest`
 
 If these fail, then something has already gone wrong. Please raise an issue on this project with as much detail as possible, including what the computer spat back at you.
 
-From the infrastructure folder - cdk-list-follower/infrastructure - type `cdk deploy` into your terminal
+Change directory to the infrastructure folder (cdk-list-follower/infrastructure). If this is your first time running this app, type `cdk bootstrap` and hit return to set up the infrastructure. 
+
+Once that's been done once, deploying is just a matter of typing `cdk deploy` into your terminal

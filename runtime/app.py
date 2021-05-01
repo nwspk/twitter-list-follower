@@ -2,7 +2,7 @@ import json
 import os
 import time
 from chalice import Rate, Chalice
-from chalice.app import SQSEvent, SQSRecord, CloudWatchEvent
+from chalice.app import SQSEvent, CloudWatchEvent
 from chalicelib.process_follow import ProcessFollow
 from chalicelib.db import DynamoDBTwitterList
 from typing import Tuple, List

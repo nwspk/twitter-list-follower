@@ -1,6 +1,4 @@
 import json
-import os
-
 from tweepy.models import User
 from unittest.mock import patch, MagicMock, create_autospec, call
 import app as views
@@ -8,10 +6,9 @@ import pytest
 from chalicelib.db import DynamoDBTwitterList
 from chalice.test import Client
 import boto3
-import botocore.session
-from mypy_boto3_sqs.service_resource import SQSServiceResource
 from tweepy import RateLimitError
 from moto import mock_sqs
+import random
 
 
 class TestIntegration:
@@ -19,24 +16,23 @@ class TestIntegration:
     @patch('app.tweepy.API.create_friendship')
     @patch('app.get_app_db')
     def test_empties_queue(self, mock_db, mock_friendship: MagicMock):
-        #TODO add error to return value on create_friendship
         mock_queue_resource = boto3.resource('sqs')
         mock_later_queue = mock_queue_resource.create_queue(QueueName='test-later-queue')
         for i in range(10):
             mock_later_queue.send_message(MessageBody=json.dumps({'user_id': '0000', 'follower_id': f'{i}'}))
 
         with patch('app.queues') as mock_queues:
-            mock_friendship.side_effect = RateLimitError(reason="Too many requests")
+            rate_error_index = random.randint(0, 9)
+            mock_friendship.side_effect = [None if i < rate_error_index else RateLimitError(reason="Too many requests") for i in range(10)]
             mock_queues.return_value = [None, mock_later_queue]
             with Client(views.app) as client:
-                # messages = [json.dumps({'user_id': '0000', 'follower_id': f'{i}'}) for i in range(10)]
                 event = client.events.generate_cw_event(
                     source='test.aws.events', detail_type='Scheduled Event', detail={}, resources=["arn:aws:events:us-east-1:123456789012:rule/MyScheduledRule"],
                     region='eu-west-test-1'
                 )
             response = client.lambda_.invoke('process_later', event)
         mock_friendship.assert_has_calls([call(id=str(i)) for i in range(10)])
-        assert int(mock_later_queue.attributes.get('ApproximateNumberOfMessagesDelayed')) == 10
+        assert int(mock_later_queue.attributes.get('ApproximateNumberOfMessagesDelayed')) == 10 - rate_error_index
 
 
 @patch('app.tweepy.API', autospec=True)

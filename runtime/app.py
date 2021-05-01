@@ -61,13 +61,13 @@ def process_later(event: CloudWatchEvent):
     if int(os.environ.get('BLOCKED_UNTIL', 0.0)) > int(time.time()):
         pass
     else:
-        db = DynamoDBTwitterList.get_app_db()
+        db = get_app_db()
         db.reset_counts()
         do_later_queue = queues()[1]
         while True:
-            message = do_later_queue.receive_message(VisibilityTimeout=1, MaxNumberOfMessages=10, WaitTimeSeconds=5)
-            if message:
-                process_now(message)
+            messages = do_later_queue.receive_message(VisibilityTimeout=1, MaxNumberOfMessages=10, WaitTimeSeconds=5).get('Messages')
+            if messages:
+                process_follow_from_record(messages.pop())
                 # update the db here?
             else:
                 break
@@ -115,18 +115,18 @@ def get_people_to_follow(twitter_api: tweepy.API) -> Tuple[List[User], int]:
     return to_follow, requests_to_process_now
 
 
-def process_follow_from_record(record: SQSRecord):
+def process_follow_from_record(message: dict):
     """
     This function takes a person to follow and the requester's credentials and then touches the Twitter API to carry out this command. If the Twitter API
     responds with a 429, we've asked too many times, and will need to back off.
     """
-    message_body = json.loads(record.body)
+    message_body = message.get('Body')
     user = get_app_db().get_item(message_body['user_id'])
     auth = tweepy_auth()
     auth.set_access_token(user['access_token'], user['access_token_secret'])
     api = tweepy.API(auth)
     try:
         api.create_friendship(id=message_body['follower_id'])
-    except tweepy.TweepError:
+    except tweepy.TweepError as e:
         do_later_queue = queues()[1]
         do_later_queue.send_message(json.dumps(message_body))

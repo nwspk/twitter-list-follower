@@ -7,28 +7,36 @@ import app as views
 import pytest
 from chalicelib.db import DynamoDBTwitterList
 from chalice.test import Client
-from botocore.stub import Stubber
+import boto3
 import botocore.session
+from mypy_boto3_sqs.service_resource import SQSServiceResource
+from tweepy import RateLimitError
+from moto import mock_sqs
 
 
-@patch('app.tweepy.API.create_friendship')
-@patch('app.get_app_db')
-def test_empties_queue(mock_db, mock_friendship):
-    #TODO add error to return value on create_friendship
-    sqs_client = botocore.session.get_session().create_client("sqs")
-    messages = {'Messages': [{'Body': {'user_id': '0000', 'follower_id': f'{i}'}} for i in range(10)]}
-    mock_later_queue = create_autospec(sqs_client)
-    mock_later_queue.receive_message.return_value = messages
-    with patch('app.queues') as mock_queues:
-        mock_queues.return_value = [None, mock_later_queue]
-        with Client(views.app) as client:
-            # messages = [json.dumps({'user_id': '0000', 'follower_id': f'{i}'}) for i in range(10)]
-            event = client.events.generate_cw_event(
-                source='test.aws.events', detail_type='Scheduled Event', detail={}, resources=["arn:aws:events:us-east-1:123456789012:rule/MyScheduledRule"],
-                region='eu-west-test-1'
-            )
+class TestIntegration:
+    @mock_sqs
+    @patch('app.tweepy.API.create_friendship')
+    @patch('app.get_app_db')
+    def test_empties_queue(self, mock_db, mock_friendship: MagicMock):
+        #TODO add error to return value on create_friendship
+        mock_queue_resource = boto3.resource('sqs')
+        mock_later_queue = mock_queue_resource.create_queue(QueueName='test-later-queue')
+        for i in range(10):
+            mock_later_queue.send_message(MessageBody=json.dumps({'user_id': '0000', 'follower_id': f'{i}'}))
+
+        with patch('app.queues') as mock_queues:
+            mock_friendship.side_effect = RateLimitError(reason="Too many requests")
+            mock_queues.return_value = [None, mock_later_queue]
+            with Client(views.app) as client:
+                # messages = [json.dumps({'user_id': '0000', 'follower_id': f'{i}'}) for i in range(10)]
+                event = client.events.generate_cw_event(
+                    source='test.aws.events', detail_type='Scheduled Event', detail={}, resources=["arn:aws:events:us-east-1:123456789012:rule/MyScheduledRule"],
+                    region='eu-west-test-1'
+                )
             response = client.lambda_.invoke('process_later', event)
-            assert response.payload == ['Dog', 'Mountain', 'Snow']
+        mock_friendship.assert_has_calls([call(id=str(i)) for i in range(10)])
+        assert int(mock_later_queue.attributes.get('ApproximateNumberOfMessagesDelayed')) == 10
 
 
 @patch('app.tweepy.API', autospec=True)

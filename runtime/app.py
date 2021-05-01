@@ -122,17 +122,22 @@ def process_follow_from_record(message: Message):
     """
     This function takes a person to follow and the requester's credentials and then touches the Twitter API to carry out this command. If the Twitter API
     responds with a 429, we've asked too many times, and will need to back off.
+    When we upgrade to V2 of the API, we'll have to change some of the backing off
     """
-    message_body = json.loads(message.body)
-    user = get_app_db().get_item(message_body['user_id'])
-    auth = tweepy_auth()
-    auth.set_access_token(user['access_token'], user['access_token_secret'])
-    api = tweepy.API(auth)
     do_later_queue = queues()[1]
-    try:
-        api.create_friendship(id=message_body['follower_id'])
-    except tweepy.TweepError as e:
+    if int(os.environ.get('BLOCKED_UNTIL', 0.0)) > int(time.time()):
         do_later_queue.send_message(MessageBody=message.body, DelaySeconds=900)
+    else:
+        message_body = json.loads(message.body)
+        user = get_app_db().get_item(message_body['user_id'])
+        auth = tweepy_auth()
+        auth.set_access_token(user['access_token'], user['access_token_secret'])
+        api = tweepy.API(auth)
+        try:
+            twitter_response = api.create_friendship(id=message_body['follower_id'])
+        except tweepy.TweepError as e:
+            do_later_queue.send_message(MessageBody=message.body, DelaySeconds=900)
+
     response = do_later_queue.delete_messages(
         Entries=[
             {
@@ -140,4 +145,4 @@ def process_follow_from_record(message: Message):
                 'ReceiptHandle': message.receipt_handle
             }
         ]
-    )
+        )

@@ -84,7 +84,7 @@ def process_now(event: SQSEvent):
     """
     do_later_queue = queues()[1]
     for record in event:
-        if int(os.environ.get('BLOCKED_UNTIL', 0.0)) <= int(time.time()):
+        if float(os.environ.get('BLOCKED_UNTIL', 0.0)) <= float(time.time()):
             # not blocked
             try:
                 process_follow_from_record(record)
@@ -126,7 +126,7 @@ def process_follow_from_record(message: Message):
     When we upgrade to V2 of the API, we'll have to change some of the backing off
     """
     do_later_queue = queues()[1]
-    if int(os.environ.get('BLOCKED_UNTIL', 0.0)) > int(time.time()):
+    if float(os.environ.get('BLOCKED_UNTIL', 0.0)) > float(time.time()):
         do_later_queue.send_message(MessageBody=message.body, DelaySeconds=900)
     else:
         message_body = json.loads(message.body)

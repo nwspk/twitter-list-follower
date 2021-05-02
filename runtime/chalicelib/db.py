@@ -25,6 +25,7 @@ class DynamoDBTwitterList(TwitterListDB):
     def __init__(self, table_resource):
         self._table = table_resource
         self.add_item('app')
+        self.add_item('twitter-api')
 
     def add_item(self, user_id: str):
         self._table.put_item(

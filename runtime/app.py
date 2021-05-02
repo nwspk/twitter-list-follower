@@ -4,13 +4,14 @@ import time
 from chalice import Rate, Chalice
 from chalice.app import SQSEvent, CloudWatchEvent
 from chalicelib.process_follow import ProcessFollow
-from chalicelib.db import DynamoDBTwitterList
+from chalicelib.db import DynamoDBTwitterList as db
 from typing import Tuple, List
 import tweepy
 from tweepy.models import User
 from chalicelib.utils import queues
 from chalicelib.api_blueprint import app as app_
 from mypy_boto3_sqs.service_resource import Message
+from tweepy import Cursor as cursor
 
 
 app = Chalice(app_name='twitter-list-follower')
@@ -26,7 +27,7 @@ _DB = None
 def get_app_db():
     global _DB
     if _DB is None:
-        _DB = DynamoDBTwitterList.get_app_db()
+        _DB = db.get_app_db()
     return _DB
 
 
@@ -101,7 +102,7 @@ def get_people_to_follow(twitter_api: tweepy.API) -> Tuple[List[User], int]:
     the 'do later' queue.
     """
     to_follow: List[User] = [
-        member for member in tweepy.Cursor(twitter_api.list_members, list_id=os.environ.get('LIST_ID', '1358187814769287171')).items()
+        member for member in cursor(twitter_api.list_members, list_id=os.environ.get('LIST_ID', '1358187814769287171')).items()
     ]
     # hard-coding the list for the data collective - change this or move to an environment variable if needed
     count_requests_to_make = len(to_follow)

@@ -1,14 +1,14 @@
 import json
 import time
 from tweepy.models import User
-from unittest.mock import patch, MagicMock, create_autospec, call
+from unittest.mock import patch, MagicMock, create_autospec, call, Mock
 import app as views
 import pytest
 from chalicelib.db import DynamoDBTwitterList
 from chalice.test import Client
 import boto3
 from tweepy import RateLimitError
-from moto import mock_sqs, mock_dynamodb
+from moto import mock_sqs, mock_dynamodb2
 import random
 import tweepy
 from freezegun import freeze_time
@@ -40,13 +40,133 @@ class TestIntegration:
         mock_friendship.assert_has_calls([call(id=str(i)) for i in range(10)])
         assert int(mock_later_queue.attributes.get('ApproximateNumberOfMessagesDelayed')) == 10 - rate_error_index
 
-    @mock_sqs
-    @mock_dynamodb
-    @patch('app.get_app_db')
-    def test_one_user(self, mock_db, mocked_tweepy):
-        mocked_api = patch('app.reconstruct_twitter_api')
-        mocked_api.return_value = mocked_tweepy
-        assert False
+    @pytest.mark.parametrize(
+        ["people_to_follow", "expected_queue_values", ],
+        [
+            [0, [0, 0], ],
+            [400, [0, 400],],
+            [401, [1, 400], ],
+            [800, [400, 400], ],
+            [1000, [600, 400], ],
+            [1001, [601, 400], ]
+        ]
+    )
+    @patch('app.cursor', autospec=True)
+    def test_integrated_enqueue_followers(self, mock_cursor, people_to_follow, expected_queue_values, mocked_tweepy, test_client, mock_sqs_resource, mock_dynamo_resource):
+
+        stubbed_later_queue = mock_sqs_resource.create_queue(QueueName='test-later-queue')
+        stubbed_now_queue = mock_sqs_resource.create_queue(QueueName='test-now-queue')
+
+        mocked_queues = patch('app.queues', return_value=[stubbed_now_queue, stubbed_later_queue, None])
+        mocked_queues.start()
+
+        first_request_datetime = "2021-05-01 00:00:00"
+        frozen_time = freeze_time(first_request_datetime, auto_tick_seconds=1)
+        frozen_time.start()
+
+        mocked_tweepy.locked_until = datetime.datetime.strptime(first_request_datetime, "%Y-%m-%d %H:%M:%S")
+        mocked_api = patch('app.reconstruct_twitter_api', return_value=mocked_tweepy)
+        mocked_api.start()
+
+        to_follow = [User(api=mocked_api) for i in range(people_to_follow)]
+        for i, u in enumerate(to_follow):
+            u.id_str = i
+        mock_cursor.return_value.items.return_value = to_follow
+
+        test_table = mock_dynamo_resource.create_table(
+            TableName='TestAppTable',
+            AttributeDefinitions=[
+                {
+                    'AttributeName': 'user_id',
+                    'AttributeType': 'S'
+                },
+            ],
+            KeySchema=[
+                {
+                    'AttributeName': 'user_id',
+                    'KeyType': 'HASH'
+                },
+            ],
+        )
+        test_db = DynamoDBTwitterList(test_table)
+        test_db.add_item('0000')
+        test_db.add_item('app')
+        test_db.add_item('twitter-api')
+        mocked_table = patch('app.get_app_db', return_value=test_db)
+        mocked_table.start()
+
+        test_client.lambda_.invoke(
+            "enqueue_follows",
+            test_client.events.generate_sqs_event(message_bodies=['0000'], queue_name='process')
+        )
+        frozen_time.stop()
+        assert stubbed_later_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[0])
+        assert stubbed_now_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[1])
+
+    @pytest.mark.parametrize(
+        ["people_to_follow", "expected_queue_values", "locked_until"],
+        [
+            [0, [0, 0], "2021-05-01 00:00:00"],
+            [400, [0, 400], "2021-05-01 00:00:00"],
+            [401, [1, 400], "2021-05-02 00:00:00"],
+            [800, [400, 400], "2021-05-02 00:00:00"],
+            [1000, [600, 400], "2021-05-02 00:00:00"],
+            [1001, [601, 400], "2021-05-02 00:00:00"]
+        ]
+    )
+    @patch('app.cursor', autospec=True)
+    def test_integrated_process_now(
+            self, mock_cursor, people_to_follow, expected_queue_values, locked_until, mock_sqs_resource, mocked_tweepy, mock_dynamo_resource, test_client
+    ):
+        stubbed_later_queue = mock_sqs_resource.create_queue(QueueName='test-later-queue')
+        stubbed_now_queue = mock_sqs_resource.create_queue(QueueName='test-now-queue')
+
+        mocked_queues = patch('app.queues', return_value=[stubbed_now_queue, stubbed_later_queue, None])
+        mocked_queues.start()
+
+        first_request_datetime = "2021-05-01 00:00:00"
+        frozen_time = freeze_time(first_request_datetime, auto_tick_seconds=1)
+        frozen_time.start()
+
+        mocked_tweepy.locked_until = datetime.datetime.strptime(first_request_datetime, "%Y-%m-%d %H:%M:%S")
+        mocked_api = patch('app.reconstruct_twitter_api', return_value=mocked_tweepy)
+        mocked_api.start()
+
+        to_follow = [User(api=mocked_api) for i in range(people_to_follow)]
+        for i, u in enumerate(to_follow):
+            u.id_str = i
+        mock_cursor.return_value.items.return_value = to_follow
+
+        test_table = mock_dynamo_resource.create_table(
+            TableName='TestAppTable',
+            AttributeDefinitions=[
+                {
+                    'AttributeName': 'user_id',
+                    'AttributeType': 'S'
+                },
+            ],
+            KeySchema=[
+                {
+                    'AttributeName': 'user_id',
+                    'KeyType': 'HASH'
+                },
+            ],
+        )
+        test_db = DynamoDBTwitterList(test_table)
+        test_db.add_item('0000')
+        test_db.add_item('app')
+        test_db.add_item('twitter-api')
+        mocked_table = patch('app.get_app_db', return_value=test_db)
+        mocked_table.start()
+
+        test_client.lambda_.invoke(
+            "process_now",
+            test_client.events.generate_sqs_event(message_bodies=[str(i) for i in range(people_to_follow)], queue_name='do-now')
+        )
+        frozen_time.stop()
+        assert stubbed_later_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[0])
+        assert stubbed_now_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[1])
+        assert mocked_tweepy.locked_until == datetime.datetime.strptime(locked_until, "%Y-%m-%d %H:%M:%S")
 
 
 @patch('app.tweepy.API', autospec=True)
@@ -57,7 +177,7 @@ class TestRoutes:
         [(0, 0, 2), (1000, 0, 0), (0, 400, 0), (1000, 400, 0)]
     )
     @patch('app.get_app_db')
-    @patch('app.tweepy.Cursor', autospec=True)
+    @patch('app.cursor', autospec=True)
     def test_get_people_to_follow(self, mock_cursor, mock_db, mock_api, all_requests, user_requests, expected):
         followers = [User(), User()]
         mock_cursor.return_value.items.return_value = followers
@@ -102,8 +222,6 @@ class TestTwitterStub:
             api.create_friendship(i)
         with pytest.raises(tweepy.RateLimitError):
             api.create_friendship('401')
-        api._reset_counts()
-        assert api.create_friendship('402') == 0
 
     def test_multiple_users(self, mock_tweepy_factory):
         user_one_api = mock_tweepy_factory('0001')
@@ -111,10 +229,10 @@ class TestTwitterStub:
         for api in (user_two_api, user_one_api):
             for i in range(400):
                 api.create_friendship(str(i))
+        assert api.app_count == 800
         with pytest.raises(tweepy.RateLimitError):
             user_one_api.create_friendship('401')
             user_two_api.create_friendship('401')
-        assert api.app_count == 800
 
     def test_time_out(self, mocked_tweepy):
         api = mocked_tweepy

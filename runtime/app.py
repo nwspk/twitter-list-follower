@@ -135,6 +135,8 @@ def process_follow_from_record(message: Message):
         api = tweepy.API(auth)
         try:
             twitter_response = api.create_friendship(id=message_body['follower_id'])
+            get_app_db().increase_count_by_one(message_body['user_id'])
+            get_app_db().increase_count_by_one('app')
         except tweepy.TweepError as e:
             do_later_queue.send_message(MessageBody=message.body, DelaySeconds=900)
 

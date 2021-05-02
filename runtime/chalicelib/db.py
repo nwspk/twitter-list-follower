@@ -24,6 +24,7 @@ class TwitterListDB(object):
 class DynamoDBTwitterList(TwitterListDB):
     def __init__(self, table_resource):
         self._table = table_resource
+        self.add_item('app')
 
     def add_item(self, user_id: str):
         self._table.put_item(
@@ -55,6 +56,11 @@ class DynamoDBTwitterList(TwitterListDB):
         # We could also use update_item() with an UpdateExpression.
         item = self.get_item(user_id)
         item[attribute] = updated_value
+        self._table.put_item(Item=item)
+
+    def increase_count_by_one(self, user_id: str):
+        item = self.get_item(user_id)
+        item['count'] += 1
         self._table.put_item(Item=item)
 
     def reset_counts(self):

@@ -140,12 +140,3 @@ def process_follow_from_record(message: Message):
             get_app_db().increase_count_by_one('app')
         except tweepy.TweepError as e:
             do_later_queue.send_message(MessageBody=message.body, DelaySeconds=900)
-
-    response = do_later_queue.delete_messages(
-        Entries=[
-            {
-                'Id': message_body['follower_id'],
-                'ReceiptHandle': message.receipt_handle
-            }
-        ]
-        )

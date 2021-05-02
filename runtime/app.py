@@ -86,13 +86,9 @@ def process_now(event: SQSEvent):
     for record in event:
         if float(os.environ.get('BLOCKED_UNTIL', 0.0)) <= float(time.time()):
             # not blocked
-            try:
-                process_follow_from_record(record)
-            except tweepy.TweepError as e:
-                os.environ['BLOCKED_UNTIL'] = str(int(time.time()) + 86400)
-                do_later_queue.send_message(record)
+            process_follow_from_record(record)
         else:
-            do_later_queue.send_message(record)
+            do_later_queue.send_message(MessageBody=record.body)
 
 
 def get_people_to_follow(twitter_api: tweepy.API) -> Tuple[List[User], int]:
@@ -135,8 +131,9 @@ def process_follow_from_record(message: Message):
         auth.set_access_token(user['access_token'], user['access_token_secret'])
         api = tweepy.API(auth)
         try:
-            twitter_response = api.create_friendship(id=message_body['follower_id'])
+            api.create_friendship(id=message_body['follower_id'])
             get_app_db().increase_count_by_one(message_body['user_id'])
             get_app_db().increase_count_by_one('app')
         except tweepy.TweepError as e:
             do_later_queue.send_message(MessageBody=message.body, DelaySeconds=900)
+            os.environ['BLOCKED_UNTIL'] = str(int(time.time()) + 86400)

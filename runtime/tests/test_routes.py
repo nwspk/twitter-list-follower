@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from tweepy.models import User
 from unittest.mock import patch, MagicMock, create_autospec, call, Mock
@@ -60,11 +61,11 @@ class TestIntegration:
         mocked_queues = patch('app.queues', return_value=[stubbed_now_queue, stubbed_later_queue, None])
         mocked_queues.start()
 
-        first_request_datetime = "2021-05-01 00:00:00"
-        frozen_time = freeze_time(first_request_datetime, auto_tick_seconds=1)
-        frozen_time.start()
+        # first_request_datetime = "2021-05-01 00:00:00"
+        # frozen_time = freeze_time(first_request_datetime, auto_tick_seconds=1)
+        # frozen_time.start()
 
-        mocked_tweepy.locked_until = datetime.datetime.strptime(first_request_datetime, "%Y-%m-%d %H:%M:%S")
+        # mocked_tweepy.locked_until = datetime.datetime.strptime(first_request_datetime, "%Y-%m-%d %H:%M:%S")
         mocked_api = patch('app.reconstruct_twitter_api', return_value=mocked_tweepy)
         mocked_api.start()
 
@@ -99,43 +100,37 @@ class TestIntegration:
             "enqueue_follows",
             test_client.events.generate_sqs_event(message_bodies=['0000'], queue_name='process')
         )
-        frozen_time.stop()
+        # frozen_time.stop()
         assert stubbed_later_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[0])
         assert stubbed_now_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[1])
 
     @pytest.mark.parametrize(
         ["people_to_follow", "expected_queue_values", "locked_until"],
         [
-            [0, [0, 0], "2021-05-01 00:00:00"],
-            [400, [0, 400], "2021-05-01 00:00:00"],
-            [401, [1, 400], "2021-05-02 00:00:00"],
-            [800, [400, 400], "2021-05-02 00:00:00"],
-            [1000, [600, 400], "2021-05-02 00:00:00"],
-            [1001, [601, 400], "2021-05-02 00:00:00"]
+            [0, 0, "2021-05-01 00:00:00"],
+            [400, 0, "2021-05-01 00:00:00"],
+            [401, 1, "2021-05-02 00:00:00"],
+            [800, 400, "2021-05-02 00:00:00"],
+            [1000, 600, "2021-05-02 00:00:00"],
+            [1001, 601, "2021-05-02 00:00:00"]
         ]
     )
-    @patch('app.cursor', autospec=True)
     def test_integrated_process_now(
-            self, mock_cursor, people_to_follow, expected_queue_values, locked_until, mock_sqs_resource, mocked_tweepy, mock_dynamo_resource, test_client
+            self, people_to_follow, expected_queue_values, locked_until, mock_sqs_resource, mocked_tweepy, mock_dynamo_resource, test_client
     ):
         stubbed_later_queue = mock_sqs_resource.create_queue(QueueName='test-later-queue')
-        stubbed_now_queue = mock_sqs_resource.create_queue(QueueName='test-now-queue')
 
-        mocked_queues = patch('app.queues', return_value=[stubbed_now_queue, stubbed_later_queue, None])
+        mocked_queues = patch('app.queues', return_value=[None, stubbed_later_queue, None])
         mocked_queues.start()
 
         first_request_datetime = "2021-05-01 00:00:00"
-        frozen_time = freeze_time(first_request_datetime, auto_tick_seconds=1)
+        frozen_time = freeze_time(first_request_datetime)
+
+        mocked_tweepy.locked_until = datetime.datetime.strptime(first_request_datetime, "%Y-%m-%d %H:%M:%S").timestamp()
         frozen_time.start()
 
-        mocked_tweepy.locked_until = datetime.datetime.strptime(first_request_datetime, "%Y-%m-%d %H:%M:%S")
-        mocked_api = patch('app.reconstruct_twitter_api', return_value=mocked_tweepy)
+        mocked_api = patch('app.tweepy.API', return_value=mocked_tweepy)
         mocked_api.start()
-
-        to_follow = [User(api=mocked_api) for i in range(people_to_follow)]
-        for i, u in enumerate(to_follow):
-            u.id_str = i
-        mock_cursor.return_value.items.return_value = to_follow
 
         test_table = mock_dynamo_resource.create_table(
             TableName='TestAppTable',
@@ -161,12 +156,11 @@ class TestIntegration:
 
         test_client.lambda_.invoke(
             "process_now",
-            test_client.events.generate_sqs_event(message_bodies=[str(i) for i in range(people_to_follow)], queue_name='do-now')
+            test_client.events.generate_sqs_event(message_bodies=[json.dumps({'user_id': '0000', 'follower_id': i}) for i in range(people_to_follow)], queue_name='do-now')
         )
         frozen_time.stop()
-        assert stubbed_later_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[0])
-        assert stubbed_now_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[1])
-        assert mocked_tweepy.locked_until == datetime.datetime.strptime(locked_until, "%Y-%m-%d %H:%M:%S")
+        assert int(stubbed_later_queue.attributes.get('ApproximateNumberOfMessages')) + int(stubbed_later_queue.attributes.get('ApproximateNumberOfMessagesDelayed')) == expected_queue_values
+        assert mocked_tweepy.locked_until == datetime.datetime.strptime(locked_until, "%Y-%m-%d %H:%M:%S").timestamp()
 
 
 @patch('app.tweepy.API', autospec=True)

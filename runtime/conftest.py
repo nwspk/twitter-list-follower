@@ -76,7 +76,7 @@ class TweepyStub(MagicMock):
         self.last_request = 0.0
         self.wait_period_seconds = wait_period_seconds
 
-    def create_friendship(self, new_friend: str):
+    def create_friendship(self, id: str):
         self.last_request = time.time()
         if self._locked_out():
             self._reset_counts()
@@ -88,7 +88,7 @@ class TweepyStub(MagicMock):
             raise tweepy.RateLimitError(f"Too many requests. Locked until {self.locked_until}", api_code=429)
         else:
             self._update_counts()
-            self.friends.append(new_friend)
+            self.friends.append(id)
             return 0
 
     def _check_within_limit(self):

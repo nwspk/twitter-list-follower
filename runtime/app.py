@@ -10,7 +10,6 @@ import tweepy
 from tweepy.models import User
 from chalicelib.utils import queues
 from chalicelib.api_blueprint import app as app_
-from mypy_boto3_sqs.service_resource import Message
 from tweepy import Cursor as cursor
 
 
@@ -115,7 +114,7 @@ def get_people_to_follow(twitter_api: tweepy.API) -> Tuple[List[User], int]:
     return to_follow, requests_to_process_now
 
 
-def process_follow_from_record(message: Message):
+def process_follow_from_record(message):
     """
     This function takes a person to follow and the requester's credentials and then touches the Twitter API to carry out this command. If the Twitter API
     responds with a 429, we've asked too many times, and will need to back off.

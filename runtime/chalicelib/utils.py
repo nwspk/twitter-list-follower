@@ -1,9 +1,8 @@
 import os
-from mypy_boto3_sqs import SQSServiceResource
 import boto3
 
 
-sqs: SQSServiceResource = boto3.resource('sqs')
+sqs = boto3.resource('sqs')
 
 
 def get_queue_url(queue_name: str):

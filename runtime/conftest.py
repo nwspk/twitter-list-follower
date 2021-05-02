@@ -21,7 +21,8 @@ def mock_settings_env_vars():
         'AWS_ACCESS_KEY_ID': 'testing',
         'AWS_SECRET_ACCESS_KEY': 'testing',
         'AWS_SECURITY_TOKEN': 'testing',
-        'AWS_SESSION_TOKEN': 'testing'
+        'AWS_SESSION_TOKEN': 'testing',
+        'BLOCKED_UNTIL': '0.0'
     }):
         yield
 
@@ -39,9 +40,31 @@ def mock_dynamo_resource(mock_settings_env_vars):
 
 
 @fixture(scope='function')
-def test_table(mock_dynamo_resource):
-    client = boto3.client('dynamodb')
-    client.create_table()
+def mock_db(mock_settings_env_vars, mock_dynamo_resource):
+    from chalicelib.db import DynamoDBTwitterList
+
+    test_table = mock_dynamo_resource.create_table(
+        TableName='TestAppTable',
+        AttributeDefinitions=[
+            {
+                'AttributeName': 'user_id',
+                'AttributeType': 'S'
+            },
+        ],
+        KeySchema=[
+            {
+                'AttributeName': 'user_id',
+                'KeyType': 'HASH'
+            },
+        ],
+    )
+    test_db = DynamoDBTwitterList(test_table)
+    test_db.add_item('0000')
+    test_db.add_item('app')
+    test_db.add_item('twitter-api')
+    mocked_table = patch('app.get_app_db', return_value=test_db)
+    mocked_table.start()
+    yield mocked_table
 
 
 @fixture(scope='function')
@@ -83,7 +106,6 @@ class TweepyStub(MagicMock):
             raise tweepy.RateLimitError(f"Rate limited until {self.locked_until}", api_code=429)
         elif not self._check_within_limit():
             self.locked_until += self.wait_period_seconds
-            os.environ['BLOCKED_UNTIL'] = str(self.locked_until)
             self._reset_counts()
             raise tweepy.RateLimitError(f"Too many requests. Locked until {self.locked_until}", api_code=429)
         else:

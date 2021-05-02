@@ -60,13 +60,13 @@ def process_later(event: CloudWatchEvent):
     This function checks if there's capacity to do any following today. If there is, it polls the 'do_later_queue' to see if there's anything to process.
     If there is it processes the follows.
     """
-    if int(os.environ.get('BLOCKED_UNTIL', 0.0)) > int(time.time()):
+    if float(os.environ.get('BLOCKED_UNTIL', 0.0)) > float(time.time()):
         pass
     else:
         db = get_app_db()
         db.reset_counts()
         do_later_queue = queues()[1]
-        while True:
+        while float(os.environ.get('BLOCKED_UNTIL', 0.0)) < float(time.time()):
             messages = do_later_queue.receive_messages(VisibilityTimeout=1, MaxNumberOfMessages=10, WaitTimeSeconds=5)
             if not messages:
                 break

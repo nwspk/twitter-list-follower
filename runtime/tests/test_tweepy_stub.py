@@ -31,12 +31,11 @@ class TestTwitterStub:
         TweepyStub.app_count = 400
         with pytest.raises(tweepy.RateLimitError):
             api.create_friendship('401')
-
+        assert api.app_count == 0
+        assert api.count == 0
         frozen_time.tick(datetime.timedelta(seconds=5))
         with pytest.raises(tweepy.RateLimitError):
             api.create_friendship('401')
         frozen_time.tick(datetime.timedelta(hours=24))
         response = api.create_friendship('401')
         assert response == 0
-        assert api.app_count == 1
-        assert api.count == 1

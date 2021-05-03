@@ -5,7 +5,6 @@ from unittest.mock import patch, MagicMock, call
 
 import pytest
 from chalice.test import Client
-from freezegun import freeze_time
 from tweepy import RateLimitError, User
 
 import app as views
@@ -78,24 +77,73 @@ class TestIntegration:
         ]
     )
     def test_integrated_process_now(
-            self, people_to_follow, expected_queue_values, locked_until, test_client, mock_db, mock_sqs_resource, mocked_tweepy
+            self, people_to_follow, expected_queue_values, locked_until, test_client, mock_db, mock_sqs_resource, mocked_tweepy, frozen_time
     ):
         stubbed_later_queue = mock_sqs_resource.create_queue(QueueName='test-later-queue')
 
         mocked_queues = patch('app.queues', return_value=[None, stubbed_later_queue, None])
 
         first_request_datetime = "2021-05-01 00:00:00"
-        frozen_time = freeze_time(first_request_datetime)
 
         mocked_tweepy.locked_until = datetime.datetime.strptime(first_request_datetime, "%Y-%m-%d %H:%M:%S").timestamp()
 
         mocked_api = patch('app.tweepy.API', return_value=mocked_tweepy)
 
-        with mocked_api, frozen_time, mocked_queues:
+        with mocked_api, mocked_queues:
             test_client.lambda_.invoke(
                 "process_now",
-                test_client.events.generate_sqs_event(message_bodies=[json.dumps({'user_id': '0000', 'follower_id': i}) for i in range(people_to_follow)], queue_name='do-now')
+                test_client.events.generate_sqs_event(message_bodies=[json.dumps({'user_id': '0000', 'follower_id': i}) for i in range(people_to_follow)],
+                                                      queue_name='do-now')
             )
-
-        assert int(stubbed_later_queue.attributes.get('ApproximateNumberOfMessages')) + int(stubbed_later_queue.attributes.get('ApproximateNumberOfMessagesDelayed')) == expected_queue_values
+        assert int(stubbed_later_queue.attributes.get('ApproximateNumberOfMessages')) + int(
+            stubbed_later_queue.attributes.get('ApproximateNumberOfMessagesDelayed')) == expected_queue_values
         assert mocked_tweepy.locked_until == datetime.datetime.strptime(locked_until, "%Y-%m-%d %H:%M:%S").timestamp()
+
+    @pytest.mark.parametrize(
+        ["people_to_follow", "users"],
+        [
+            [0, ['0000']],
+            [1, ['0000']],
+            [400, ['0000']],
+            [401, ['0000']],
+            [800, ['0000']],
+            [801, ['0000']]
+        ]
+    )
+    def test_process_later_with_varying_queue_lengths(
+            self, people_to_follow, users, mock_db, mocked_tweepy, mock_sqs_resource, test_client, mock_settings_env_vars, frozen_time):
+        stubbed_later_queue = mock_sqs_resource.create_queue(QueueName='test-later-queue')
+        messages = map(json.dumps, [{'user_id': '0000', 'follower_id': f'{i}'} for i in range(people_to_follow)])
+        if people_to_follow < 10:
+            for message in messages:
+                stubbed_later_queue.send_message(MessageBody=message)
+        else:
+            entries = []
+            for i, message in enumerate(messages, start=1):
+                entries.append({'Id': str(i), 'MessageBody': json.dumps({'user_id': '0000', 'follower_id': f'{i}'})})
+                if i % 10 == 0:
+                    stubbed_later_queue.send_messages(Entries=entries)
+                    entries.clear()
+            if entries:
+                stubbed_later_queue.send_messages(Entries=entries)
+
+        mocked_queues = patch('app.queues', return_value=[None, stubbed_later_queue, None])
+
+        mocked_api = patch('app.tweepy.API', return_value=mocked_tweepy)
+
+        with mocked_api, mocked_queues, Client(views.app) as client:
+            event = client.events.generate_cw_event(
+                source='test.aws.events', detail_type='Scheduled Event', detail={},
+                resources=["arn:aws:events:us-east-1:123456789012:rule/MyScheduledRule"],
+                region='eu-west-test-1'
+            )
+            test_client.lambda_.invoke("process_later", event)
+        if people_to_follow <= 400:
+            assert views.get_app_db().get_item('app').get('count') == people_to_follow
+            assert views.get_app_db().get_item(users[0]).get('count') == people_to_follow
+        else:
+            timed_out_until = datetime.datetime.strptime("2021-05-01 00:00:00", "%Y-%m-%d %H:%M:%S") + datetime.timedelta(hours=24)
+            assert mocked_tweepy.locked_until == timed_out_until.timestamp()
+            assert views.get_app_db().get_item('app').get('count') <= 1000
+            for user in users:
+                assert views.get_app_db().get_item(user).get('count') <= 400

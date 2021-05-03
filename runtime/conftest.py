@@ -2,6 +2,7 @@ import os
 from unittest.mock import patch
 
 import boto3
+import freezegun
 from chalice.test import Client
 from moto import mock_sqs, mock_dynamodb2
 from pytest import fixture
@@ -76,9 +77,15 @@ def mocked_tweepy():
     yield TweepyStub('0000')
 
 
+@fixture(autouse=True)
+def frozen_time():
+    with freezegun.freeze_time("2021-05-01 00:00:01") as f:
+        yield f
+
+
 @fixture(scope='function')
 def mock_tweepy_factory():
     def _tweepy_factory(user_id: str):
         return TweepyStub(user_id)
-    yield _tweepy_factory
 
+    yield _tweepy_factory

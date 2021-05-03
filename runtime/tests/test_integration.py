@@ -12,10 +12,10 @@ import app as views
 
 
 class TestIntegration:
-    @freeze_time("2021-05-02 00:00")
+
     @patch('app.tweepy.API.create_friendship')
     @patch('app.get_app_db')
-    def test_empties_queue(self, patched_db, mock_friendship: MagicMock, mock_sqs_resource):
+    def test_if_tweepy_throws_error_messages_queued(self, patched_db, mock_friendship: MagicMock, mock_sqs_resource):
         mock_later_queue = mock_sqs_resource.create_queue(QueueName='test-later-queue')
         for i in range(10):
             mock_later_queue.send_message(MessageBody=json.dumps({'user_id': '0000', 'follower_id': f'{i}'}))
@@ -53,22 +53,20 @@ class TestIntegration:
         stubbed_now_queue = mock_sqs_resource.create_queue(QueueName='test-now-queue')
 
         mocked_queues = patch('app.queues', return_value=[stubbed_now_queue, stubbed_later_queue, None])
-        mocked_queues.start()
 
         mocked_api = patch('app.reconstruct_twitter_api', return_value=mocked_tweepy)
-        mocked_api.start()
 
         to_follow = [User(api=mocked_api) for i in range(people_to_follow)]
         for i, u in enumerate(to_follow):
             u.id_str = i
         mock_cursor.return_value.items.return_value = to_follow
-
-        test_client.lambda_.invoke(
-            "enqueue_follows",
-            test_client.events.generate_sqs_event(message_bodies=['0000'], queue_name='process')
-        )
-        assert stubbed_later_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[0])
-        assert stubbed_now_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[1])
+        with mocked_api, mocked_queues:
+            test_client.lambda_.invoke(
+                "enqueue_follows",
+                test_client.events.generate_sqs_event(message_bodies=['0000'], queue_name='process')
+            )
+            assert stubbed_later_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[0])
+            assert stubbed_now_queue.attributes.get('ApproximateNumberOfMessages') == str(expected_queue_values[1])
 
     @pytest.mark.parametrize(
         ["people_to_follow", "expected_queue_values", "locked_until"],
@@ -87,22 +85,19 @@ class TestIntegration:
         stubbed_later_queue = mock_sqs_resource.create_queue(QueueName='test-later-queue')
 
         mocked_queues = patch('app.queues', return_value=[None, stubbed_later_queue, None])
-        mocked_queues.start()
 
         first_request_datetime = "2021-05-01 00:00:00"
         frozen_time = freeze_time(first_request_datetime)
 
         mocked_tweepy.locked_until = datetime.datetime.strptime(first_request_datetime, "%Y-%m-%d %H:%M:%S").timestamp()
-        frozen_time.start()
 
         mocked_api = patch('app.tweepy.API', return_value=mocked_tweepy)
-        mocked_api.start()
 
-        test_client.lambda_.invoke(
-            "process_now",
-            test_client.events.generate_sqs_event(message_bodies=[json.dumps({'user_id': '0000', 'follower_id': i}) for i in range(people_to_follow)], queue_name='do-now')
-        )
-        frozen_time.stop()
-        mocked_api.stop()
+        with mocked_api, frozen_time, mocked_queues:
+            test_client.lambda_.invoke(
+                "process_now",
+                test_client.events.generate_sqs_event(message_bodies=[json.dumps({'user_id': '0000', 'follower_id': i}) for i in range(people_to_follow)], queue_name='do-now')
+            )
+
         assert int(stubbed_later_queue.attributes.get('ApproximateNumberOfMessages')) + int(stubbed_later_queue.attributes.get('ApproximateNumberOfMessagesDelayed')) == expected_queue_values
         assert mocked_tweepy.locked_until == datetime.datetime.strptime(locked_until, "%Y-%m-%d %H:%M:%S").timestamp()

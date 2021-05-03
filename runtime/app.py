@@ -1,17 +1,18 @@
 import json
 import os
 import time
+from typing import Tuple, List
+
+import tweepy
 from chalice import Rate, Chalice
 from chalice.app import SQSEvent, CloudWatchEvent
-from chalicelib.process_follow import ProcessFollow
-from chalicelib.db import DynamoDBTwitterList as db
-from typing import Tuple, List
-import tweepy
-from tweepy.models import User
-from chalicelib.utils import queues
-from chalicelib.api_blueprint import app as app_
 from tweepy import Cursor as cursor
+from tweepy.models import User
 
+from chalicelib.api_blueprint import app as app_
+from chalicelib.db import DynamoDBTwitterList as db
+from chalicelib.process_follow import ProcessFollow
+from chalicelib.utils import queues, locked_out
 
 app = Chalice(app_name='twitter-list-follower')
 app.register_blueprint(app_)
@@ -59,14 +60,14 @@ def process_later(event: CloudWatchEvent):
     This function checks if there's capacity to do any following today. If there is, it polls the 'do_later_queue' to see if there's anything to process.
     If there is it processes the follows.
     """
-    if float(os.environ.get('BLOCKED_UNTIL', 0.0)) > float(time.time()):
+    if locked_out():
         pass
     else:
         db = get_app_db()
         db.reset_counts()
         do_later_queue = queues()[1]
-        while float(os.environ.get('BLOCKED_UNTIL', 0.0)) < float(time.time()):
-            messages = do_later_queue.receive_messages(VisibilityTimeout=1, MaxNumberOfMessages=10, WaitTimeSeconds=5)
+        while not locked_out():
+            messages = do_later_queue.receive_messages(VisibilityTimeout=1, MaxNumberOfMessages=10)
             if not messages:
                 break
             else:
@@ -83,7 +84,7 @@ def process_now(event: SQSEvent):
     """
     do_later_queue = queues()[1]
     for record in event:
-        if float(os.environ.get('BLOCKED_UNTIL', 0.0)) <= float(time.time()):
+        if not locked_out():
             # not blocked
             process_follow_from_record(record)
         else:
@@ -121,7 +122,7 @@ def process_follow_from_record(message):
     When we upgrade to V2 of the API, we'll have to change some of the backing off
     """
     do_later_queue = queues()[1]
-    if float(os.environ.get('BLOCKED_UNTIL', 0.0)) > float(time.time()):
+    if locked_out():
         do_later_queue.send_message(MessageBody=message.body, DelaySeconds=900)
     else:
         message_body = json.loads(message.body)

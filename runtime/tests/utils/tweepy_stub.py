@@ -45,7 +45,7 @@ class TweepyStub(MagicMock):
         """
         Determines if the user is currently rate limited for this time period. Resets every self.wait_period_seconds
         """
-        return time.time() <= self.locked_until
+        return time.time() < self.locked_until
 
     def _update_counts(self):
         self.count += 1

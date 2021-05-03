@@ -79,7 +79,7 @@ def mocked_tweepy():
 
 @fixture(autouse=True)
 def frozen_time():
-    with freezegun.freeze_time("2021-05-01 00:00:01") as f:
+    with freezegun.freeze_time("2021-05-01 00:00:00") as f:
         yield f
 
 

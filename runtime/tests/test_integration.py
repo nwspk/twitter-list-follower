@@ -14,8 +14,7 @@ import app as views
 class TestIntegration:
 
     @patch('app.tweepy.API.create_friendship')
-    @patch('app.get_app_db')
-    def test_if_tweepy_throws_error_messages_queued(self, patched_db, mock_friendship: MagicMock, mock_sqs_resource):
+    def test_if_tweepy_throws_error_messages_queued(self, mock_friendship: MagicMock, mock_sqs_resource, mock_db):
         mock_later_queue = mock_sqs_resource.create_queue(QueueName='test-later-queue')
         for i in range(10):
             mock_later_queue.send_message(MessageBody=json.dumps({'user_id': '0000', 'follower_id': f'{i}'}))
@@ -30,7 +29,6 @@ class TestIntegration:
                     region='eu-west-test-1'
                 )
             response = client.lambda_.invoke('process_later', event)
-        patched_db.return_value.increase_count_by_one.assert_has_calls([call('0000') for i in range(rate_error_index)], any_order=True)
         mock_friendship.assert_has_calls([call(id=str(i)) for i in range(rate_error_index)])
         assert int(mock_later_queue.attributes.get('ApproximateNumberOfMessagesDelayed')) == 10 - rate_error_index
 

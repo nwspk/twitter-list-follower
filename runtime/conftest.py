@@ -1,13 +1,14 @@
-from moto import mock_sqs, mock_dynamodb2
+import os
+from unittest.mock import patch
+
 import boto3
+import freezegun
+from chalice.test import Client
+from moto import mock_sqs, mock_dynamodb2
+from pytest import fixture
 
 from app import app
-from pytest import fixture
-from chalice.test import Client
-from unittest.mock import patch
 from tests.utils.tweepy_stub import TweepyStub
-
-import os
 
 
 @fixture(autouse=True)
@@ -61,9 +62,8 @@ def mock_db(mock_settings_env_vars, mock_dynamo_resource):
     test_db.add_item('0000')
     test_db.add_item('app')
     test_db.add_item('twitter-api')
-    mocked_table = patch('app.get_app_db', return_value=test_db)
-    mocked_table.start()
-    yield mocked_table
+    with patch('app.get_app_db', return_value=test_db):
+        yield
 
 
 @fixture(scope='function')
@@ -77,9 +77,15 @@ def mocked_tweepy():
     yield TweepyStub('0000')
 
 
+@fixture(autouse=True)
+def frozen_time():
+    with freezegun.freeze_time("2021-05-01 00:00:00") as f:
+        yield f
+
+
 @fixture(scope='function')
 def mock_tweepy_factory():
     def _tweepy_factory(user_id: str):
         return TweepyStub(user_id)
-    yield _tweepy_factory
 
+    yield _tweepy_factory

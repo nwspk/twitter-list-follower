@@ -1,6 +1,7 @@
 import os
-import boto3
+import time
 
+import boto3
 
 sqs = boto3.resource('sqs')
 
@@ -19,3 +20,7 @@ def queues() -> tuple[sqs.Queue, sqs.Queue, sqs.Queue]:
         sqs.Queue(get_queue_url(os.environ.get('APP_DO_LATER_QUEUE_NAME', ''))),
         sqs.Queue(get_queue_url(os.environ.get('APP_PROCESS_QUEUE_NAME', '')))
     )
+
+
+def locked_out():
+    return float(time.time()) < float(os.environ.get('BLOCKED_UNTIL', 0.0))

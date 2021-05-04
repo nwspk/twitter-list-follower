@@ -2,7 +2,6 @@ import datetime
 
 import pytest
 import tweepy
-from freezegun import freeze_time
 
 from tests.utils.tweepy_stub import TweepyStub
 
@@ -26,17 +25,17 @@ class TestTwitterStub:
             user_one_api.create_friendship('401')
             user_two_api.create_friendship('401')
 
-    def test_time_out(self, mocked_tweepy):
+    def test_time_out(self, mocked_tweepy, frozen_time):
         api = mocked_tweepy
-        first_request_datetime = "2021-05-01 00:00:01"
-        with freeze_time(first_request_datetime, auto_tick_seconds=5) as frozen_datetime:
-            api.locked_until = datetime.datetime.strptime(first_request_datetime, "%Y-%m-%d %H:%M:%S").timestamp()
-            api.count = 400
-            TweepyStub.app_count = 400
-            with pytest.raises(tweepy.RateLimitError):
-                api.create_friendship('401')
-            frozen_datetime.tick(datetime.timedelta(hours=24))
-            response = api.create_friendship('401')
-            assert response == 0
-            assert api.app_count == 1
-            assert api.count == 1
+        api.count = 400
+        TweepyStub.app_count = 400
+        with pytest.raises(tweepy.RateLimitError):
+            api.create_friendship('401')
+        assert api.app_count == 0
+        assert api.count == 0
+        frozen_time.tick(datetime.timedelta(seconds=5))
+        with pytest.raises(tweepy.RateLimitError):
+            api.create_friendship('401')
+        frozen_time.tick(datetime.timedelta(hours=24))
+        response = api.create_friendship('401')
+        assert response == 0

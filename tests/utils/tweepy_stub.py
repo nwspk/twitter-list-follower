@@ -10,7 +10,7 @@ class TweepyStub(MagicMock):
     app_limit = 1000
     user_limit = 400
 
-    def __init__(self, user: str, wait_period_seconds: float=86400.0):
+    def __init__(self, user: str, wait_period_seconds: float = 86400.0):
         super().__init__(spec=tweepy.API)
         self.user = user
         self.friends = []
@@ -23,11 +23,15 @@ class TweepyStub(MagicMock):
         self.last_request = time.time()
         if self._locked_out():
             self._reset_counts()
-            raise tweepy.RateLimitError(f"Rate limited until {self.locked_until}", api_code=429)
+            raise tweepy.RateLimitError(
+                f"Rate limited until {self.locked_until}", api_code=429
+            )
         elif not self._check_within_limit():
             self.locked_until = time.time() + self.wait_period_seconds
             self._reset_counts()
-            raise tweepy.RateLimitError(f"Too many requests. Locked until {self.locked_until}", api_code=429)
+            raise tweepy.RateLimitError(
+                f"Too many requests. Locked until {self.locked_until}", api_code=429
+            )
         else:
             self._update_counts()
             self.friends.append(id)
@@ -35,10 +39,10 @@ class TweepyStub(MagicMock):
 
     def _check_within_limit(self):
         return all(
-                [
-                    self.count < TweepyStub.user_limit,
-                    TweepyStub.app_count < TweepyStub.app_limit
-                ]
+            [
+                self.count < TweepyStub.user_limit,
+                TweepyStub.app_count < TweepyStub.app_limit,
+            ]
         )
 
     def _locked_out(self):

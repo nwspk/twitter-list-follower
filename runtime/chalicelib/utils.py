@@ -1,9 +1,10 @@
 import os
 import time
+from typing import Tuple
 
 import boto3
 
-sqs = boto3.resource('sqs')
+sqs = boto3.resource("sqs")
 
 
 def get_queue_url(queue_name: str):
@@ -14,13 +15,13 @@ def get_queue_url(queue_name: str):
     return response["QueueUrl"]
 
 
-def queues() -> tuple[sqs.Queue, sqs.Queue, sqs.Queue]:
+def queues() -> Tuple[sqs.Queue, sqs.Queue, sqs.Queue]:
     return (
-        sqs.Queue(get_queue_url(os.environ.get('APP_DO_NOW_QUEUE_NAME', ''))),
-        sqs.Queue(get_queue_url(os.environ.get('APP_DO_LATER_QUEUE_NAME', ''))),
-        sqs.Queue(get_queue_url(os.environ.get('APP_PROCESS_QUEUE_NAME', '')))
+        sqs.Queue(get_queue_url(os.environ.get("APP_DO_NOW_QUEUE_NAME", ""))),
+        sqs.Queue(get_queue_url(os.environ.get("APP_DO_LATER_QUEUE_NAME", ""))),
+        sqs.Queue(get_queue_url(os.environ.get("APP_PROCESS_QUEUE_NAME", ""))),
     )
 
 
 def locked_out():
-    return float(time.time()) < float(os.environ.get('BLOCKED_UNTIL', 0.0))
+    return float(time.time()) < float(os.environ.get("BLOCKED_UNTIL", 0.0))

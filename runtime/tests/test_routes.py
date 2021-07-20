@@ -67,6 +67,7 @@ class TestRoutes:
         expected_now,
         expected_later,
         test_client,
+        mock_message_body_sent_to_process_queue,
     ):
         to_follow = [MagicMock(), MagicMock()]
         mock_later_queue = MagicMock()
@@ -76,11 +77,11 @@ class TestRoutes:
         for i, u in enumerate(to_follow):
             u.id_str = str(i)
         mock_get_people_to_follow.return_value = (to_follow, requests_to_process_now)
-        body = "123"
+        body = mock_message_body_sent_to_process_queue
         test_client.lambda_.invoke(
             "enqueue_follows",
             test_client.events.generate_sqs_event(
-                message_bodies=[body], queue_name="process"
+                message_bodies=body, queue_name="process"
             ),
         )
         expected_messages_now = [

@@ -1,3 +1,4 @@
+import json
 import os
 from unittest.mock import patch
 
@@ -87,3 +88,14 @@ def mock_tweepy_factory():
         return TweepyStub(user_id)
 
     yield _tweepy_factory
+
+
+@fixture(scope="function")
+def mock_message_body_sent_to_process_queue():
+    package = {
+        "access_token": "test-access-token",
+        "access_token_secret": "test-access_token_secret",
+        "user_id": "123",
+        "list_id": "test-list-id",
+    }
+    return json.dumps(package)

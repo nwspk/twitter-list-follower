@@ -9,10 +9,10 @@ from chalice.app import SQSEvent, CloudWatchEvent
 from tweepy import Cursor as cursor
 from tweepy.models import User
 
-from .chalicelib.api_blueprint import app as app_
-from .chalicelib.db import DynamoDBTwitterList as db
-from .chalicelib.process_follow import ProcessFollow
-from .chalicelib.utils import queues, locked_out
+from chalicelib.api_blueprint import app as app_
+from chalicelib.db import DynamoDBTwitterList as db
+from chalicelib.process_follow import ProcessFollow
+from chalicelib.utils import queues, locked_out
 
 app = Chalice(app_name="twitter-list-follower")
 app.register_blueprint(app_)

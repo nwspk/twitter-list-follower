@@ -26,7 +26,7 @@ class TestRoutes:
         assert views.get_people_to_follow(mocked_api) == (followers, expected)
 
     @patch(
-        "runtime.chalicelib.db.DynamoDBTwitterList.get_app_db",
+        "chalicelib.db.DynamoDBTwitterList.get_app_db",
         return_value=create_autospec(DynamoDBTwitterList),
     )
     @patch("runtime.app.get_people_to_follow")

@@ -8,7 +8,7 @@ from moto import mock_sqs, mock_dynamodb2
 from pytest import fixture
 
 from runtime.app import app
-from tests.utils.tweepy_stub import TweepyStub
+from runtime.tests.utils import TweepyStub
 
 
 @fixture(autouse=True)

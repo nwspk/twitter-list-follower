@@ -133,3 +133,4 @@ runtime/deployments
 *.out
 .chalice
 /runtime/runtime-venv
+/aws

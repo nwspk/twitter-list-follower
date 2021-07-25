@@ -1,7 +1,7 @@
 import json
 import os
 import time
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 
 import tweepy
 from chalice import Rate, Chalice
@@ -40,7 +40,8 @@ def reconstruct_twitter_api(user_id: str) -> tweepy.API:
 @app.on_sqs_message(queue="process", batch_size=1, name="enqueue_follows")
 def enqueue_follows(event: SQSEvent):
     for record in event:
-        user_id = record.body
+        message_body = dict(json.loads(record.body))
+        user_id = message_body.get("user_id")
         twitter_api = reconstruct_twitter_api(user_id)
         to_follow, requests_to_process_now = get_people_to_follow(twitter_api)
         for i, follower in enumerate(to_follow):
@@ -91,20 +92,21 @@ def process_now(event: SQSEvent):
             do_later_queue.send_message(MessageBody=record.body)
 
 
-def get_people_to_follow(twitter_api: tweepy.API) -> Tuple[List[User], int]:
+def get_people_to_follow(
+    twitter_api: tweepy.API, list_to_follow: Optional[str] = None
+) -> Tuple[List[User], int]:
     """
-    This will access the Twitter API. It takes the Twitter list we'll be following and draws down the users in that list. It then filters out those that
-    the user already follows, and then enqueues each request. If we've made 1,000 requests today, or 400 for this user, the request will have to be added to
-    the 'do later' queue.
+    This will access the Twitter API. It takes the Twitter list we'll be following and draws down the users in that list.
+    It then filters out those that the user already follows, and then enqueues each request. If we've made 1,000
+    requests today, or 400 for this user, the request will have to be added to the 'do later' queue.
     """
+    if list_to_follow is None:
+        list_to_follow = "1358187814769287171"
+        # hard-coding the list for the data collective
     to_follow: List[User] = [
         member
-        for member in cursor(
-            twitter_api.list_members,
-            list_id=os.environ.get("LIST_ID", "1358187814769287171"),
-        ).items()
+        for member in cursor(twitter_api.list_members, list_id=list_to_follow).items()
     ]
-    # hard-coding the list for the data collective - change this or move to an environment variable if needed
     count_requests_to_make = len(to_follow)
 
     all_requests_today = get_app_db().get_item("twitter-api").get("count", 0)

@@ -111,7 +111,7 @@ def get_people_to_follow(
 
     all_requests_today = get_app_db().get_item("twitter-api").get("count", 0)
     user_requests_today = get_app_db().get_item(twitter_api.me().id_str).get("count", 0)
-    if user_requests_today >= 400 or all_requests_today >= 1000:
+    if user_requests_today >= USER_LIMIT or all_requests_today >= TWITTER_LIMIT:
         requests_to_process_now = 0
     else:
         requests_left_today = (

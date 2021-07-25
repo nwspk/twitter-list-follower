@@ -7,11 +7,11 @@ import pytest
 from chalice.test import Client
 from tweepy import RateLimitError, User
 
-import runtime.app as views
+import app as views
 
 
 class TestIntegration:
-    @patch("runtime.app.tweepy.API.create_friendship")
+    @patch("app.tweepy.API.create_friendship")
     def test_if_tweepy_throws_error_messages_queued(
         self, mock_friendship: MagicMock, mock_sqs_resource, mock_db
     ):
@@ -21,7 +21,7 @@ class TestIntegration:
                 MessageBody=json.dumps({"user_id": "0000", "follower_id": f"{i}"})
             )
 
-        with patch("runtime.app.queues") as mock_queues:
+        with patch("app.queues") as mock_queues:
             rate_error_index = random.randint(0, 9)
             mock_friendship.side_effect = [
                 None
@@ -60,7 +60,7 @@ class TestIntegration:
             [1001, [601, 400]],
         ],
     )
-    @patch("runtime.app.cursor", autospec=True)
+    @patch("app.cursor", autospec=True)
     def test_integrated_enqueue_followers(
         self,
         mock_cursor,
@@ -70,6 +70,7 @@ class TestIntegration:
         test_client,
         mock_sqs_resource,
         mock_db,
+        mock_message_body_sent_to_process_queue,
     ):
 
         stubbed_later_queue = mock_sqs_resource.create_queue(
@@ -78,13 +79,11 @@ class TestIntegration:
         stubbed_now_queue = mock_sqs_resource.create_queue(QueueName="test-now-queue")
 
         mocked_queues = patch(
-            "runtime.app.queues",
+            "app.queues",
             return_value=[stubbed_now_queue, stubbed_later_queue, None],
         )
 
-        mocked_api = patch(
-            "runtime.app.reconstruct_twitter_api", return_value=mocked_tweepy
-        )
+        mocked_api = patch("app.reconstruct_twitter_api", return_value=mocked_tweepy)
 
         to_follow = [User(api=mocked_api) for i in range(people_to_follow)]
         for i, u in enumerate(to_follow):
@@ -94,7 +93,8 @@ class TestIntegration:
             test_client.lambda_.invoke(
                 "enqueue_follows",
                 test_client.events.generate_sqs_event(
-                    message_bodies=["0000"], queue_name="process"
+                    message_bodies=[mock_message_body_sent_to_process_queue],
+                    queue_name="process",
                 ),
             )
             assert stubbed_later_queue.attributes.get(
@@ -131,7 +131,7 @@ class TestIntegration:
         )
 
         mocked_queues = patch(
-            "runtime.app.queues", return_value=[None, stubbed_later_queue, None]
+            "app.queues", return_value=[None, stubbed_later_queue, None]
         )
 
         first_request_datetime = "2021-05-01 00:00:00"
@@ -140,7 +140,7 @@ class TestIntegration:
             first_request_datetime, "%Y-%m-%d %H:%M:%S"
         ).timestamp()
 
-        mocked_api = patch("runtime.app.tweepy.API", return_value=mocked_tweepy)
+        mocked_api = patch("app.tweepy.API", return_value=mocked_tweepy)
 
         with mocked_api, mocked_queues:
             test_client.lambda_.invoke(
@@ -218,10 +218,10 @@ class TestIntegration:
                 stubbed_later_queue.send_messages(Entries=entries)
 
         mocked_queues = patch(
-            "runtime.app.queues", return_value=[None, stubbed_later_queue, None]
+            "app.queues", return_value=[None, stubbed_later_queue, None]
         )
 
-        mocked_api = patch("runtime.app.tweepy.API", return_value=mocked_tweepy)
+        mocked_api = patch("app.tweepy.API", return_value=mocked_tweepy)
 
         with mocked_api, mocked_queues, Client(views.app) as client:
             event = client.events.generate_cw_event(

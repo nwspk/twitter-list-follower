@@ -8,8 +8,8 @@ from chalice.test import Client
 from moto import mock_sqs, mock_dynamodb2
 from pytest import fixture
 
-from runtime.app import app
-from runtime.tests.utils.tweepy_stub import TweepyStub
+from app import app
+from tests.utils.tweepy_stub import TweepyStub
 
 
 @fixture(autouse=True)
@@ -46,7 +46,7 @@ def mock_dynamo_resource(mock_settings_env_vars):
 
 @fixture(scope="function")
 def mock_db(mock_settings_env_vars, mock_dynamo_resource):
-    from runtime.chalicelib.db import DynamoDBTwitterList
+    from chalicelib.db import DynamoDBTwitterList
 
     test_table = mock_dynamo_resource.create_table(
         TableName="TestAppTable",
@@ -61,7 +61,7 @@ def mock_db(mock_settings_env_vars, mock_dynamo_resource):
     test_db.add_item("0000")
     test_db.add_item("app")
     test_db.add_item("twitter-api")
-    with patch("runtime.app.get_app_db", return_value=test_db):
+    with patch("app.get_app_db", return_value=test_db):
         yield
 
 

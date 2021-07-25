@@ -3,7 +3,7 @@ import datetime
 import pytest
 import tweepy
 
-from runtime.tests.utils.tweepy_stub import TweepyStub
+from tests.utils.tweepy_stub import TweepyStub
 
 
 class TestTwitterStub:

@@ -1,22 +1,25 @@
 import json
 from tweepy.models import User
 from unittest.mock import patch, MagicMock, create_autospec, call
-import runtime.app as views
+import app as views
 import pytest
-from runtime.chalicelib.db import DynamoDBTwitterList
+from chalicelib.db import DynamoDBTwitterList
 
 
-@patch("runtime.app.tweepy.API", autospec=True)
+@patch("app.tweepy.API", autospec=True)
 class TestRoutes:
     @pytest.mark.parametrize(
         "all_requests, user_requests, expected",
         [(0, 0, 2), (1000, 0, 0), (0, 400, 0), (1000, 400, 0)],
     )
-    @patch("runtime.app.get_app_db")
-    @patch("runtime.app.cursor", autospec=True)
+    @patch("app.get_app_db")
+    @patch("app.cursor", autospec=True)
     def test_get_people_to_follow(
         self, mock_cursor, patched_db, mocked_api, all_requests, user_requests, expected
     ):
+        """
+        This test checks whether 'get_people_to_follow' sorts requests into the right categories
+        """
         followers = [User(), User()]
         mock_cursor.return_value.items.return_value = followers
         patched_db.return_value.get_item.side_effect = [
@@ -29,8 +32,8 @@ class TestRoutes:
         "chalicelib.db.DynamoDBTwitterList.get_app_db",
         return_value=create_autospec(DynamoDBTwitterList),
     )
-    @patch("runtime.app.get_people_to_follow")
-    @patch("runtime.app.queues")
+    @patch("app.get_people_to_follow")
+    @patch("app.queues")
     @pytest.mark.parametrize(
         ["requests_to_process_now", "expected_now", "expected_later"],
         [
@@ -81,7 +84,7 @@ class TestRoutes:
         test_client.lambda_.invoke(
             "enqueue_follows",
             test_client.events.generate_sqs_event(
-                message_bodies=body, queue_name="process"
+                message_bodies=[body], queue_name="process"
             ),
         )
         expected_messages_now = [

@@ -33,8 +33,8 @@ def tweepy_auth():
     return ProcessFollow.tweepy_auth()
 
 
-def reconstruct_twitter_api(user_id: str) -> tweepy.API:
-    return ProcessFollow().reconstruct_twitter_api(user_id)
+def reconstruct_twitter_api(message_body: dict) -> tweepy.API:
+    return ProcessFollow().reconstruct_twitter_api(message_body)
 
 
 @app.on_sqs_message(queue="process", batch_size=1, name="enqueue_follows")
@@ -42,10 +42,12 @@ def enqueue_follows(event: SQSEvent):
     for record in event:
         message_body = dict(json.loads(record.body))
         user_id = message_body.get("user_id")
-        twitter_api = reconstruct_twitter_api(user_id)
+        twitter_api = reconstruct_twitter_api(message_body)
         to_follow, requests_to_process_now = get_people_to_follow(twitter_api)
         for i, follower in enumerate(to_follow):
-            message = json.dumps({"user_id": user_id, "follower_id": follower.id_str})
+            message = message_body.copy()
+            message["follower_id"] = follower.id_str
+            message = json.dumps(message)
             do_now_queue, do_later_queue = queues()[:2]
             if i >= requests_to_process_now:
                 do_later_queue.send_message(MessageBody=message)
@@ -138,9 +140,10 @@ def process_follow_from_record(message):
         do_later_queue.send_message(MessageBody=message.body, DelaySeconds=900)
     else:
         message_body = json.loads(message.body)
-        user = get_app_db().get_item(message_body["user_id"])
         auth = tweepy_auth()
-        auth.set_access_token(user["access_token"], user["access_token_secret"])
+        auth.set_access_token(
+            message_body["access_token"], message_body["access_token_secret"]
+        )
         api = tweepy.API(auth)
         try:
             api.create_friendship(id=message_body["follower_id"])

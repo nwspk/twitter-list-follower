@@ -10,15 +10,34 @@ from tweepy import RateLimitError, User
 import app as views
 
 
+@pytest.fixture
+def all_queues(mock_sqs_resource):
+    return [
+        mock_sqs_resource.create_queue(QueueName="test-now-queue"),
+        mock_sqs_resource.create_queue(QueueName="test-later-queue"),
+        mock_sqs_resource.create_queue(QueueName="test-process"),
+    ]
+
+
 class TestIntegration:
+    @pytest.fixture
+    def mock_message_as_object(self, mock_message_body_sent_to_process_queue):
+        return json.loads(mock_message_body_sent_to_process_queue)
+
     @patch("app.tweepy.API.create_friendship")
     def test_if_tweepy_throws_error_messages_queued(
-        self, mock_friendship: MagicMock, mock_sqs_resource, mock_db
+        self,
+        mock_friendship: MagicMock,
+        mock_sqs_resource,
+        mock_db,
+        mock_message_as_object,
     ):
         mock_later_queue = mock_sqs_resource.create_queue(QueueName="test-later-queue")
         for i in range(10):
             mock_later_queue.send_message(
-                MessageBody=json.dumps({"user_id": "0000", "follower_id": f"{i}"})
+                MessageBody=json.dumps(
+                    {**mock_message_as_object, "follower_id": f"{i}"}
+                )
             )
 
         with patch("app.queues") as mock_queues:
@@ -71,16 +90,15 @@ class TestIntegration:
         mock_sqs_resource,
         mock_db,
         mock_message_body_sent_to_process_queue,
+        all_queues,
     ):
-
-        stubbed_later_queue = mock_sqs_resource.create_queue(
-            QueueName="test-later-queue"
-        )
-        stubbed_now_queue = mock_sqs_resource.create_queue(QueueName="test-now-queue")
+        queues = all_queues
+        stubbed_now_queue = queues[0]
+        stubbed_later_queue = queues[1]
 
         mocked_queues = patch(
             "app.queues",
-            return_value=[stubbed_now_queue, stubbed_later_queue, None],
+            return_value=all_queues,
         )
 
         mocked_api = patch("app.reconstruct_twitter_api", return_value=mocked_tweepy)
@@ -125,6 +143,7 @@ class TestIntegration:
         mock_sqs_resource,
         mocked_tweepy,
         frozen_time,
+        mock_message_as_object,
     ):
         stubbed_later_queue = mock_sqs_resource.create_queue(
             QueueName="test-later-queue"
@@ -147,7 +166,7 @@ class TestIntegration:
                 "process_now",
                 test_client.events.generate_sqs_event(
                     message_bodies=[
-                        json.dumps({"user_id": "0000", "follower_id": i})
+                        json.dumps({**mock_message_as_object, "follower_id": i})
                         for i in range(people_to_follow)
                     ],
                     queue_name="do-now",
@@ -168,12 +187,12 @@ class TestIntegration:
     @pytest.mark.parametrize(
         ["people_to_follow", "users"],
         [
-            [0, ["0000"]],
-            [1, ["0000"]],
-            [400, ["0000"]],
-            [401, ["0000"]],
-            [800, ["0000"]],
-            [801, ["0000"]],
+            [0, ["123"]],
+            [1, ["123"]],
+            [400, ["123"]],
+            [401, ["123"]],
+            [800, ["123"]],
+            [801, ["123"]],
         ],
     )
     def test_process_later_with_varying_queue_lengths(
@@ -186,6 +205,7 @@ class TestIntegration:
         test_client,
         mock_settings_env_vars,
         frozen_time,
+        mock_message_as_object,
     ):
         stubbed_later_queue = mock_sqs_resource.create_queue(
             QueueName="test-later-queue"
@@ -193,7 +213,7 @@ class TestIntegration:
         messages = map(
             json.dumps,
             [
-                {"user_id": "0000", "follower_id": f"{i}"}
+                {**mock_message_as_object, "follower_id": f"{i}"}
                 for i in range(people_to_follow)
             ],
         )
@@ -203,14 +223,7 @@ class TestIntegration:
         else:
             entries = []
             for i, message in enumerate(messages, start=1):
-                entries.append(
-                    {
-                        "Id": str(i),
-                        "MessageBody": json.dumps(
-                            {"user_id": "0000", "follower_id": f"{i}"}
-                        ),
-                    }
-                )
+                entries.append({"Id": str(i), "MessageBody": message})
                 if i % 10 == 0:
                     stubbed_later_queue.send_messages(Entries=entries)
                     entries.clear()

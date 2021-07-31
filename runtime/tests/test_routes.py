@@ -6,12 +6,12 @@ import pytest
 from chalicelib.db import DynamoDBTwitterList
 
 
-@patch("app.tweepy.API", autospec=True)
 class TestRoutes:
     @pytest.mark.parametrize(
         "all_requests, user_requests, expected",
         [(0, 0, 2), (1000, 0, 0), (0, 400, 0), (1000, 400, 0)],
     )
+    @patch("app.tweepy.API", autospec=True)
     @patch("app.get_app_db")
     @patch("app.cursor", autospec=True)
     def test_get_people_to_follow(
@@ -28,12 +28,14 @@ class TestRoutes:
         ]
         assert views.get_people_to_follow(mocked_api) == (followers, expected)
 
-    @patch(
-        "chalicelib.db.DynamoDBTwitterList.get_app_db",
-        return_value=create_autospec(DynamoDBTwitterList),
-    )
-    @patch("app.get_people_to_follow")
-    @patch("app.queues")
+
+@patch(
+    "chalicelib.db.DynamoDBTwitterList.get_app_db",
+    return_value=create_autospec(DynamoDBTwitterList),
+)
+@patch("app.get_people_to_follow")
+@patch("app.queues")
+class TestEnqueueFollowers:
     @pytest.mark.parametrize(
         ["requests_to_process_now", "expected_now", "expected_later"],
         [
@@ -60,12 +62,11 @@ class TestRoutes:
             ),
         ],
     )
-    def test_enqueue_followers(
+    def test_enqueue_followers_with_default_list(
         self,
         mock_queues,
         mock_get_people_to_follow,
         mock_db,
-        mock_api,
         requests_to_process_now,
         expected_now,
         expected_later,
@@ -80,18 +81,27 @@ class TestRoutes:
         for i, u in enumerate(to_follow):
             u.id_str = str(i)
         mock_get_people_to_follow.return_value = (to_follow, requests_to_process_now)
-        body = mock_message_body_sent_to_process_queue
         test_client.lambda_.invoke(
             "enqueue_follows",
             test_client.events.generate_sqs_event(
-                message_bodies=[body], queue_name="process"
+                message_bodies=[mock_message_body_sent_to_process_queue],
+                queue_name="process",
             ),
         )
+        original_message = json.loads(mock_message_body_sent_to_process_queue)
         expected_messages_now = [
-            call(MessageBody=message) for message in map(json.dumps, expected_now)
+            call(MessageBody=message)
+            for message in map(
+                json.dumps,
+                ({**original_message, **follower_id} for follower_id in expected_now),
+            )
         ]
         expected_messages_later = [
-            call(MessageBody=message) for message in map(json.dumps, expected_later)
+            call(MessageBody=message)
+            for message in map(
+                json.dumps,
+                ({**original_message, **follower_id} for follower_id in expected_later),
+            )
         ]
         mock_now_queue.send_message.assert_has_calls(expected_messages_now)
         mock_later_queue.send_message.assert_has_calls(expected_messages_later)

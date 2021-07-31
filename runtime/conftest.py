@@ -58,7 +58,7 @@ def mock_db(mock_settings_env_vars, mock_dynamo_resource):
         ],
     )
     test_db = DynamoDBTwitterList(test_table)
-    test_db.add_item("0000")
+    test_db.add_item("123")
     test_db.add_item("app")
     test_db.add_item("twitter-api")
     with patch("app.get_app_db", return_value=test_db):
@@ -73,7 +73,7 @@ def test_client():
 
 @fixture(scope="function")
 def mocked_tweepy():
-    yield TweepyStub("0000")
+    yield TweepyStub("123")
 
 
 @fixture(autouse=True)

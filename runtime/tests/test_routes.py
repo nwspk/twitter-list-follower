@@ -26,7 +26,10 @@ class TestRoutes:
             {"count": all_requests},
             {"count": user_requests},
         ]
-        assert views.get_people_to_follow(mocked_api) == (followers, expected)
+        assert views.get_people_to_follow(mocked_api, "test_id") == (
+            followers,
+            expected,
+        )
 
 
 @patch(

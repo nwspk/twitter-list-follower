@@ -3,6 +3,7 @@ import json
 import random
 from unittest.mock import patch, MagicMock, call
 
+import freezegun
 import pytest
 from chalice.test import Client
 from tweepy import RateLimitError, User
@@ -19,11 +20,12 @@ def all_queues(mock_sqs_resource):
     ]
 
 
-class TestIntegration:
-    @pytest.fixture
-    def mock_message_as_object(self, mock_message_body_sent_to_process_queue):
-        return json.loads(mock_message_body_sent_to_process_queue)
+@pytest.fixture
+def mock_message_as_object(mock_message_body_sent_to_process_queue):
+    return json.loads(mock_message_body_sent_to_process_queue)
 
+
+class TestIntegration:
     @patch("app.tweepy.API.create_friendship")
     def test_if_tweepy_throws_error_messages_queued(
         self,
@@ -67,60 +69,6 @@ class TestIntegration:
             int(mock_later_queue.attributes.get("ApproximateNumberOfMessagesDelayed"))
             == 10 - rate_error_index
         )
-
-    @pytest.mark.parametrize(
-        ["people_to_follow", "expected_queue_values"],
-        [
-            [0, [0, 0]],
-            [400, [0, 400]],
-            [401, [1, 400]],
-            [800, [400, 400]],
-            [1000, [600, 400]],
-            [1001, [601, 400]],
-        ],
-    )
-    @patch("app.cursor", autospec=True)
-    def test_integrated_enqueue_followers(
-        self,
-        mock_cursor,
-        people_to_follow,
-        expected_queue_values,
-        mocked_tweepy,
-        test_client,
-        mock_sqs_resource,
-        mock_db,
-        mock_message_body_sent_to_process_queue,
-        all_queues,
-    ):
-        queues = all_queues
-        stubbed_now_queue = queues[0]
-        stubbed_later_queue = queues[1]
-
-        mocked_queues = patch(
-            "app.queues",
-            return_value=all_queues,
-        )
-
-        mocked_api = patch("app.reconstruct_twitter_api", return_value=mocked_tweepy)
-
-        to_follow = [User(api=mocked_api) for i in range(people_to_follow)]
-        for i, u in enumerate(to_follow):
-            u.id_str = i
-        mock_cursor.return_value.items.return_value = to_follow
-        with mocked_api, mocked_queues:
-            test_client.lambda_.invoke(
-                "enqueue_follows",
-                test_client.events.generate_sqs_event(
-                    message_bodies=[mock_message_body_sent_to_process_queue],
-                    queue_name="process",
-                ),
-            )
-            assert stubbed_later_queue.attributes.get(
-                "ApproximateNumberOfMessages"
-            ) == str(expected_queue_values[0])
-            assert stubbed_now_queue.attributes.get(
-                "ApproximateNumberOfMessages"
-            ) == str(expected_queue_values[1])
 
     @pytest.mark.parametrize(
         ["people_to_follow", "expected_queue_values", "locked_until"],
@@ -260,3 +208,126 @@ class TestIntegration:
             assert views.get_app_db().get_item("app").get("count") <= 1000
             for user in users:
                 assert views.get_app_db().get_item(user).get("count") <= 400
+
+
+@patch("app.cursor", autospec=True)
+class TestEnqueueFollowers:
+    @pytest.mark.parametrize(
+        ["people_to_follow", "expected_queue_values"],
+        [
+            [0, [0, 0]],
+            [400, [0, 400]],
+            [401, [1, 400]],
+            [800, [400, 400]],
+            [1000, [600, 400]],
+            [1001, [601, 400]],
+        ],
+    )
+    def test_integrated_enqueue_followers(
+        self,
+        mock_cursor,
+        people_to_follow,
+        expected_queue_values,
+        mocked_tweepy,
+        test_client,
+        mock_sqs_resource,
+        mock_db,
+        mock_message_body_sent_to_process_queue,
+        all_queues,
+    ):
+        queues = all_queues
+        stubbed_now_queue = queues[0]
+        stubbed_later_queue = queues[1]
+
+        mocked_queues = patch(
+            "app.queues",
+            return_value=all_queues,
+        )
+
+        mocked_api = patch("app.reconstruct_twitter_api", return_value=mocked_tweepy)
+
+        to_follow = [User(api=mocked_api) for i in range(people_to_follow)]
+        for i, u in enumerate(to_follow):
+            u.id_str = i
+        mock_cursor.return_value.items.return_value = to_follow
+        with mocked_api, mocked_queues:
+            test_client.lambda_.invoke(
+                "enqueue_follows",
+                test_client.events.generate_sqs_event(
+                    message_bodies=[mock_message_body_sent_to_process_queue],
+                    queue_name="process",
+                ),
+            )
+            assert stubbed_later_queue.attributes.get(
+                "ApproximateNumberOfMessages"
+            ) == str(expected_queue_values[0])
+            assert stubbed_now_queue.attributes.get(
+                "ApproximateNumberOfMessages"
+            ) == str(expected_queue_values[1])
+
+    @pytest.mark.parametrize(
+        [
+            "number_of_queues",
+            "queue_length",
+            "expected_process_now",
+            "expected_process_later",
+        ],
+        [
+            (10, 10, "100", "0"),
+        ],
+    )
+    def test_enqueue_followers_multiple_users(
+        self,
+        mock_cursor,
+        number_of_queues,
+        queue_length,
+        expected_process_now,
+        expected_process_later,
+        mocked_tweepy,
+        test_client,
+        mock_sqs_resource,
+        mock_db,
+        mock_message_body_sent_to_process_queue,
+        all_queues,
+        mock_message_as_object,
+    ):
+        queues = all_queues
+        stubbed_now_queue = queues[0]
+        stubbed_later_queue = queues[1]
+
+        mocked_queues = patch(
+            "app.queues",
+            return_value=all_queues,
+        )
+        mocked_api = patch("app.reconstruct_twitter_api", return_value=mocked_tweepy)
+
+        def generate_mocked_user(user_id: str):
+            u = User(api=mocked_api)
+            u.id_str = user_id
+            return u
+
+        lists = [
+            [generate_mocked_user(f"{j}{i}") for i in range(10)] for j in range(10)
+        ]
+
+        mock_cursor.return_value.items.side_effect = lists
+        message_bodies = list(
+            map(
+                json.dumps,
+                ({**mock_message_as_object, "list_id": i} for i in range(10)),
+            )
+        )
+        with mocked_api, mocked_queues:
+            test_client.lambda_.invoke(
+                "enqueue_follows",
+                test_client.events.generate_sqs_event(
+                    message_bodies=message_bodies,
+                    queue_name="process",
+                ),
+            )
+            assert (
+                stubbed_later_queue.attributes.get("ApproximateNumberOfMessages") == "0"
+            )
+            assert (
+                stubbed_now_queue.attributes.get("ApproximateNumberOfMessages") == "100"
+            )

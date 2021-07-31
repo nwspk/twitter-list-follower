@@ -84,8 +84,8 @@ def frozen_time():
 
 @fixture(scope="function")
 def mock_tweepy_factory():
-    def _tweepy_factory(user_id: str):
-        return TweepyStub(user_id)
+    def _tweepy_factory(user_data: dict):
+        return TweepyStub(user_data["user_id"])
 
     yield _tweepy_factory
 

@@ -41,9 +41,10 @@ def reconstruct_twitter_api(message_body: dict) -> tweepy.API:
 def enqueue_follows(event: SQSEvent):
     for record in event:
         message_body = dict(json.loads(record.body))
-        user_id = message_body.get("user_id")
         twitter_api = reconstruct_twitter_api(message_body)
-        to_follow, requests_to_process_now = get_people_to_follow(twitter_api)
+        to_follow, requests_to_process_now = get_people_to_follow(
+            twitter_api, message_body["list_id"]
+        )
         for i, follower in enumerate(to_follow):
             message = message_body.copy()
             message["follower_id"] = follower.id_str
@@ -103,7 +104,7 @@ def get_people_to_follow(
     requests today, or 400 for this user, the request will have to be added to the 'do later' queue.
     """
     if list_to_follow is None:
-        list_to_follow = "1358187814769287171"
+        raise ValueError()
         # hard-coding the list for the data collective
     to_follow: List[User] = [
         member

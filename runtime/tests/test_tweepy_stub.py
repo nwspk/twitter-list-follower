@@ -15,8 +15,8 @@ class TestTwitterStub:
             api.create_friendship("401")
 
     def test_multiple_users(self, mock_tweepy_factory):
-        user_one_api = mock_tweepy_factory("0001")
-        user_two_api = mock_tweepy_factory("0002")
+        user_one_api = mock_tweepy_factory({"user_id": "0001"})
+        user_two_api = mock_tweepy_factory({"user_id": "0002"})
         for api in (user_two_api, user_one_api):
             for i in range(400):
                 api.create_friendship(str(i))

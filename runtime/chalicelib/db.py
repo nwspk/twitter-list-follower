@@ -24,16 +24,14 @@ class TwitterListDB(object):
 class DynamoDBTwitterList(TwitterListDB):
     def __init__(self, table_resource):
         self._table = table_resource
-        self.add_item('app')
-        self.add_item('twitter-api')
+        self.add_item("app")
+        self.add_item("twitter-api")
 
     def add_item(self, user_id: str):
         self._table.put_item(
             Item={
-                'user_id': user_id,
-                'count': 0,
-                'access_token': '',
-                'access_token_secret': '',
+                "user_id": user_id,
+                "count": 0,
             }
         )
         return user_id
@@ -41,15 +39,15 @@ class DynamoDBTwitterList(TwitterListDB):
     def get_item(self, user_id: str):
         response = self._table.get_item(
             Key={
-                'user_id': user_id,
+                "user_id": user_id,
             },
         )
-        return response['Item']
+        return response["Item"]
 
     def delete_item(self, user_id: str):
         self._table.delete_item(
             Key={
-                'user_id': user_id,
+                "user_id": user_id,
             }
         )
 
@@ -61,22 +59,23 @@ class DynamoDBTwitterList(TwitterListDB):
 
     def increase_count_by_one(self, user_id: str):
         item = self.get_item(user_id)
-        item['count'] += 1
+        item["count"] += 1
         self._table.put_item(Item=item)
 
     def reset_counts(self):
         response = self._table.scan()
-        data = response['Items']
+        data = response["Items"]
 
-        while 'LastEvaluatedKey' in response:
-            response = self._table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
-            data.extend(response['Items'])
+        while "LastEvaluatedKey" in response:
+            response = self._table.scan(ExclusiveStartKey=response["LastEvaluatedKey"])
+            data.extend(response["Items"])
         for datum in data:
-            self.update_item(user_id=datum['user_id'], attribute='count', updated_value=0)
+            self.update_item(
+                user_id=datum["user_id"], attribute="count", updated_value=0
+            )
 
     @staticmethod
     def get_app_db():
         return DynamoDBTwitterList(
-            boto3.resource('dynamodb').Table(
-                os.environ['APP_TABLE_NAME'])
+            boto3.resource("dynamodb").Table(os.environ["APP_TABLE_NAME"])
         )

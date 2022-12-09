@@ -181,7 +181,7 @@ blessed==1.17.6
 boto3==1.18.6
 botocore==1.21.6
 cattrs==1.6.0
-certifi==2021.5.30
+certifi==2022.12.7
 cffi==1.14.6
 chalice==1.22.3
 charset-normalizer==2.0.3

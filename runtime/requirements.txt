@@ -187,7 +187,7 @@ chalice==1.22.3
 charset-normalizer==2.0.3
 click==7.1.2
 constructs==3.3.103
-cryptography==3.4.7
+cryptography==39.0.1
 docker==5.0.0
 freezegun==1.1.0
 idna==3.2
